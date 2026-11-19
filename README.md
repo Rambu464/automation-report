@@ -1,6 +1,6 @@
-# Newstent — Media Monitoring & Reporting Automation
+# Newstent — Analyst Workflow Automation Tool
 
-Sistem otomasi *end-to-end* untuk pengolahan data *media monitoring* **Newstensity (Binokular)**—mulai dari pembersihan *raw data*, koreksi sentimen & penyeragaman topik (`Newstrends`) berbasis Cloud AI, pembuatan *Pivot Table* otomatis, hingga penyusunan draf laporan **Excel, PowerPoint (`.pptx`), dan Word/Email Body (`.docx`)** sebelum *deadline* pagi pukul **09.00 WIB**.
+Alat bantu otomasi alur kerja analis (*Analyst Workflow Automation Tool*) untuk pengolahan data *media monitoring* **Newstensity (Binokular)**—mulai dari pembersihan *raw data* (`.xls with Statements`), penandaan *Takeout* & *Alasan Spam*, koreksi sentimen & standardisasi `Newstrends` berbasis Cloud AI, ekstraksi 3-tingkat *Spokesperson*, pembuatan *Pivot Table* & kurasi berita kompetitor, hingga menghasilkan **2 output utama klien: File Excel *Raw Data Cleaned* (`.xlsx`) dan Report Visual (`.pptx` / `.pdf`)** melalui **Local Web UI (Next.js + FastAPI)**.
 
 ---
 
@@ -10,14 +10,16 @@ Sistem otomasi *end-to-end* untuk pengolahan data *media monitoring* **Newstensi
 Newstensity/
 ├── docs/
 │   ├── phase-1-requirements/
-│   │   ├── PROJECT_BASELINE.md        # BRD: Latar belakang bisnis, alur As-Is, bottlenecks, & ROI
-│   │   └── SYSTEM_REQUIREMENTS.md     # SRS: SDLC plan, Cloud AI spec, FR/NFR, & estimasi biaya
+│   │   ├── BRD.md                     # Business Requirements Document (Non-Teknis / Operasional)
+│   │   └── SRS.md                     # Software Requirements Specification (Teknis Developer & AI)
 │   └── phase-2-design/
-│       └── ARCHITECTURE_DISCUSSION.md # Catatan desain arsitektur & alur end-to-end pipeline
-├── clients/                           # Folder per klien: config.yaml + template PPT & Word (Phase 2/3)
-├── data/                              # Runtime data: raw input, SQLite cache, & output report (ignored Git)
-├── src/                               # Source code Python modular — Phase 3
-├── tests/                             # Unit test & dataset QA — Phase 4
+│       └── SAD.md                     # Software Architecture Document (Desain Sistem, DB, & Web UI)
+├── clients/                           # Folder per klien: config.yaml + template PPT/Excel
+├── data/                              # Runtime data: raw input, SQLite state DB, & output (ignored Git)
+├── src/                               # Layer 1: Core Engine Python modular (Phase 3)
+├── backend/                           # Layer 2: FastAPI local server & SSE progress (Phase 3)
+├── frontend/                          # Layer 3: Next.js local Web UI & QC Table (Phase 3)
+├── tests/                             # Unit test & dataset QA (Phase 4)
 ├── .env                               # Credentials & API keys lokal (tidak masuk Git)
 ├── .env.example                       # Contoh variabel environment
 ├── .gitignore                         # Aturan pengecualian Git standar
@@ -30,8 +32,8 @@ Newstensity/
 
 | Fase | Status | Fokus Utama | Dokumen / Lokasi |
 | :--- | :--- | :--- | :--- |
-| **Phase 1: Planning & Requirements** | 🔄 Proses | Analisis kebutuhan bisnis (*As-Is*), spesifikasi sistem (*FR/NFR*), & estimasi biaya Cloud AI. | `docs/phase-1-requirements/` |
-| **Phase 2: System & Architecture Design** | 🔄 Persiapan | Desain pipeline *end-to-end*, skema `config.yaml`, SQLite cache, & *placeholder mapping* PPT/Word. | `docs/phase-2-design/` |
-| **Phase 3: Core Development** | ⏳ Mendatang | Implementasi modul Python (`Pre-Cleaning`, `AI Engine`, `Auto-Pivot`, `Report Generators`). | `src/` |
-| **Phase 4: Testing & Quality Control** | ⏳ Mendatang | Uji akurasi sentimen/Newstrend, validasi angka Pivot 100%, & benchmark SLA/biaya. | `tests/` |
-| **Phase 5: Deployment & Scheduling** | ⏳ Mendatang | Otomasi eksekusi pagi (`Task Scheduler` / CLI) untuk $\ge 3$ klien sebelum pukul 09.00 WIB. | — |
+| **Phase 1: Planning & Requirements** | ✅ Selesai | Analisis kebutuhan bisnis (*BRD*) & spesifikasi teknis sistem (*SRS*: FR/NFR, Cloud AI, & estimasi biaya). | [`docs/phase-1-requirements/`](./docs/phase-1-requirements/) |
+| **Phase 2: System & Architecture Design** | 🔄 Proses | Desain arsitektur (*SAD*), skema SQLite (4 tabel), `config.yaml` *ad-hoc*, & arsitektur **Next.js + FastAPI**. | [`docs/phase-2-design/SAD.md`](./docs/phase-2-design/SAD.md) |
+| **Phase 3: Core Development** | ⏳ Mendatang | Implementasi 4 Sprint: `Pre-Cleaning`, `AI Engine`, `Auto-Pivot & Dual Deliverables`, & `Local Web UI`. | `src/`, `backend/`, `frontend/` |
+| **Phase 4: Testing & Quality Control** | ⏳ Mendatang | Uji akurasi *Takeout/Spokesperson/Newstrend*, validasi 0 selisih Pivot & 0 *mismatch* Media-URL. | `tests/` |
+| **Phase 5: Local Deployment & Handover** | ⏳ Mendatang | Paket *one-click launcher* lokal (FastAPI + Next.js) siap pakai sebelum pukul 09.00 WIB. | — |
