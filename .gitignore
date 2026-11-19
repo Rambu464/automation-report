@@ -1,0 +1,28 @@
+# Environment & Secrets
+.env
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Local Database & Cache
+*.db
+*.sqlite
+*.sqlite3
+
+# Runtime Data & Generated Reports
+data/raw/
+data/processed/
+data/output/
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
