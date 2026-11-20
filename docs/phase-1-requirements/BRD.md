@@ -104,7 +104,7 @@ flowchart TD
 Sebagai pendekatan awal pengembangan, **pengaturan topik dan pengunduhan Excel dari dashboard sementara tetap dilakukan manual oleh analis**, kemudian sistem otomasi mengambil alih seluruh proses mulai dari *Data Cleaning* hingga menghasilkan **2 output akhir untuk klien (*Raw Data Cleaned Excel* & *Report PPTX/PDF*)**:
 
 ```mermaid
-flowchart LR
+flowchart TD
     M1["1. Analis Unduh Raw Excel<br/>(Sementara Manual: Setup Topik, Cutoff, & Download .xls with Statements)"] --> A1["2. Auto-Cleaning, Takeout & Media Enrichment<br/>(Filter Iklan/Newswire -> Kolom Takeout & Alasan Spam, Flag Jam 00:00, Lookup Tier/Hypestat, Simpan History Takeout Bulanan)"]
     A1 --> A2["3. AI Standardization & Spokesperson Fallback<br/>(Newstrend Kalimat Aktif 'Kasus...'/'Tanggapan...', Cek Statements -> Content -> '0', Kolom Ad-Hoc Kluster/Paid/Earned)"]
     A2 --> A3["4. Auto-Pivot & Generate 2 Output Klien<br/>- Output 1: Excel Raw Data Cleaned & Pivot (.xlsx)<br/>- Output 2: Report Visual Klien (.pptx / .pdf)"]
