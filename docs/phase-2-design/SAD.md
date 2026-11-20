@@ -52,9 +52,10 @@ erDiagram
     }
 
     MEDIA_MASTER_HYPESTAT {
-        string domain PK "Domain portal media (misal: detik.com)"
+        string domain PK "Domain portal media (misal: beritasatu.com)"
         string media_name "Nama resmi media"
-        string media_tier "Tier 1 / Tier 2 / Tier 3"
+        string tier_bino "Tier standar Binokular (Tier 1 / 2 / 3)"
+        string client_custom_tier_json "Aturan Tier khusus klien (misal: TIER BNI = Tier 2)"
         string media_type_detail "Organik / Newswire / Media Bazar"
         int hypestat_daily_visitor "Nilai visitor/trafik dari Hypestat"
         int media_value "Nilai valuasi media"
@@ -169,22 +170,24 @@ Setelah AI selesai mengisi klasifikasi dan Python memisahkan baris `Status_Takeo
    - Diurutkan berdasarkan **`Media Tier`** (*Tier 1* paling atas) dan nilai trafik **Hypestat (`Oplah/Daily Visitor`)**.
    - Diambil **2–3 baris teratas** per sentimen, lalu Python mengekstrak langsung kolom **`ID`, `Title`, `Media Name`, `Media Tier`, `Page/URL`, dan `Newstrends`** dari baris Excel asli.
 
-### B. Mekanisme Anti-Mismatch pada Pembuatan 2 Output Utama Klien (Excel Cleaned & Report PPTX/PDF)
+### B. Mekanisme Anti-Mismatch pada Pembuatan 3 Output Utama Klien (Excel Cleaned, Report PPTX/PDF, & Wording)
 
-Sesuai kebutuhan klien, sistem otomasi difokuskan penuh dari tahap *Data Cleaning* hingga menghasilkan **2 output utama yang diserahkan ke klien** (tanpa otomasi *Push Mail*):
-1. **Output 1 — File Excel *Raw Data Cleaned & Pivot* (`.xlsx`)**
+Berdasarkan referensi hasil kerja analis (studi kasus BNI Jember), sistem otomasi difokuskan penuh dari tahap *Data Cleaning* hingga menghasilkan **3 output utama untuk klien** (tanpa otomasi *Push Mail*):
+1. **Output 1 — File Excel *Raw Data Cleaned & Pivot* (`.xlsx`)** (bebas error `#REF!`, termasuk kolom `TIER <KLIEN>` otomatis)
 2. **Output 2 — File Report Visual (`.pptx` / `.pdf`)**
+3. **Output 3 — Teks *Wording* Pengantar Email (`.txt` / *Copy-to-Clipboard* di Web UI)** — di-generate dari `report_payload.json` yang sama dengan PPTX sehingga 0% selisih angka.
 
 ```mermaid
 flowchart TD
-    RawExcel["1. Raw Excel Unduhan Analis<br/>(Standar: .xls with Statements)"] --> PreClean["2. Python Pre-Cleaning & Media Lookup<br/>- Deduplikasi ID & Sync Statements<br/>- Flag Jam 00:00 (Cutoff Check)<br/>- Lookup Hypestat Tier & Auto-Takeout Newswire<br/>- Sync Historical Takeout (Monthly Registry)"]
+    RawExcel["1. Raw Excel Unduhan Analis<br/>(Standar: .xls with Statements + Opsional Daftar Req Upload/Takedown)"] --> PreClean["2. Python Pre-Cleaning & Media Lookup<br/>- Deduplikasi ID & Sync Statements<br/>- Flag Jam 00:00 (Cutoff Check)<br/>- Lookup Tier Bino, Custom Tier Klien (mis. Tier-BNI) & Hypestat<br/>- Auto-Takeout Newswire & Sync Historical Takeout (Monthly Registry)"]
 
     PreClean --> AIBatch["3. Two-Pass AI Semantic & Spokesperson Engine<br/>- Filter Spam/Iklan -> Isi Status_Takeout & Alasan_Spam<br/>- Klasifikasi Rilis vs Organik & Kolom Ad-Hoc (Kluster/Paid/Earned)<br/>- Fallback Spokesperson & Jabatan (Statements -> Content -> '0')<br/>- Koreksi Sentimen (POV Klien/Kompetitor + Negative Issue Memory)<br/>- Standardisasi Newstrend Kalimat Aktif ('Kasus...' / 'Tanggapan...')"]
 
-    AIBatch -->|"Join via ID Asli (100% Anti-Mismatch URL)"| CleanDF["4. DataFrame Terverifikasi & Auto-Pivot (Python pandas)<br/>- Pisahkan Sheet News_Clean vs Sheet Takeout_Spam<br/>- Buat Pivot Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis<br/>- Pilih 2-3 Berita Positif/Negatif Kompetitor by Tier & Hitung SoV"]
+    AIBatch -->|"Join via ID Asli (100% Anti-Mismatch URL)"| CleanDF["4. DataFrame Terverifikasi & Auto-Pivot (Python pandas)<br/>- Pisahkan Sheet News_Clean vs Sheet Takeout_Spam/Takedown<br/>- Buat Pivot Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis<br/>- Pilih 2-3 Berita Positif/Negatif Kompetitor by Tier"]
 
-    CleanDF --> OutExcel["Output 1 Klien: Excel Raw Data Cleaned (.xlsx)<br/>- Sheet News_Clean (+Kolom Ad-Hoc & Spokesperson)<br/>- Sheet Takeout_Spam (+Alasan_Spam untuk QC)<br/>- Sheet Statements & Sheet Pivot Lengkap"]
+    CleanDF --> OutExcel["Output 1 Klien: Excel Raw Data Cleaned (.xlsx)<br/>- Sheet News_Clean (+Custom Tier, Kolom Ad-Hoc & Spokesperson)<br/>- Sheet Takeout_Spam/Takedown (+Alasan_Spam untuk QC)<br/>- Sheet Statements & Sheet Pivot Dinamis (Bebas #REF!)"]
     CleanDF --> OutPPTPDF["Output 2 Klien: Report Visual (.pptx / .pdf)<br/>Injeksi Tabel, Grafik, & Daftar Berita ke Template Klien<br/>(Nama Media & URL dijamin 100% sesuai baris Excel asli)"]
+    CleanDF --> OutWording["Output 3 Klien: Teks Wording (.txt / Copy Web UI)<br/>Ringkasan Sentimen, Tier, Timeline, & Arah Percakapan<br/>(100% Sinkron Angka dengan PPTX)"]
 ```
 
 Dengan arsitektur ini:
@@ -211,7 +214,7 @@ Newstensity/
 2. `GET /api/process/{job_id}/stream` (**Server-Sent Events / SSE**) — Mengirim progres pemrosesan per *batch* secara *real-time* ke browser (*"Batch 4/15 selesai — Estimasi 40 detik"*).
 3. `GET /api/qc/{job_id}` & `PATCH /api/qc/{job_id}` — Mengambil dan menyimpan hasil koreksi manual analis di tabel QC (*toggle* `Takeout`/`Keep`, edit `Alasan_Spam`, edit `Sentiment`/`Newstrends`, sekaligus *sync* ke SQLite `takeout_registry`).
 4. `GET /api/clients/{client_id}/config` & `PUT /api/clients/{client_id}/config` — Membaca & memperbarui aturan klien beserta penambahan **Kolom Ad-Hoc** (`Kluster`, `Paid_Earned`) melalui formulir UI.
-5. `POST /api/export/{job_id}` — Menghasilkan dan menyediakan tautan unduh untuk **2 Output Utama**: (1) Excel *Raw Data Cleaned & Pivot* (`.xlsx` sesuai pilihan *Column Picker*) dan (2) Report Visual (`.pptx` / `.pdf`).
+5. `POST /api/export/{job_id}` — Menghasilkan dan menyediakan tautan unduh/salin untuk **3 Output Utama**: (1) Excel *Raw Data Cleaned & Pivot* (`.xlsx` sesuai pilihan *Column Picker*), (2) Report Visual (`.pptx` / `.pdf`), dan (3) Teks ***Wording*** (`.txt` + tombol *Copy-to-Clipboard* di Next.js).
 
 ### C. Fitur Utama Antarmuka Analis di Next.js (`frontend/`)
 - **Interactive Spreadsheet QC (`AG Grid Community` / `@tanstack/react-table`):** Tabel mirip Excel di browser dengan 3 tab filter cepat:

@@ -23,7 +23,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | **Phase 1: Planning & Requirement Analysis** | Pemetaan alur analis senior (studi kasus BRI), aturan *Takeout & Alasan Spam*, standardisasi *Newstrend* berawalan sentimen, logika 3-tingkat *Spokesperson* (`Statements` $\rightarrow$ `Content` $\rightarrow$ `0`), analisis kompetitor/SoV, serta kolom *ad-hoc*. | `BRD.md` & `SRS.md` |
 | **Phase 2: System & AI Architecture Design** | Perancangan skema SQLite (`ai_cache`, `takeout_registry` untuk sinkronisasi bulanan, `negative_issue_memory`, & `media_hypestat_lookup`), struktur fleksibel `config.yaml`, `report_payload.json`, dan arsitektur **Next.js + FastAPI**. | `SAD.md` (`docs/phase-2-design/`) |
-| **Phase 3: Implementation (Modular Build)** | **Sprint 1:** Ingestion Excel (`.xls with Statements` via `python-calamine`), Validasi Jam `00:00` (*Cutoff*), Lookup *Media Tier/Hypestat* & *Newswire/Media Bazar*, serta Sinkronisasi *Takeout* Historis.<br>**Sprint 2:** Cloud AI Semantic Engine (*Spam/Iklan Takeout + Alasan*, *Newstrend Prefix Rule*, *3-Tier Spokesperson Extraction*, & *Ad-Hoc Columns*).<br>**Sprint 3:** Auto-Pivot Engine (*Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis*), Kurasi 2–3 Berita Kompetitor, Kalkulasi SoV Bulanan, & Dual-Deliverable Generator (`xlsxwriter`/`openpyxl` + `python-pptx`).<br>**Sprint 4:** Local Web UI (**Next.js** Frontend + **FastAPI** Backend + SSE Progress + Spreadsheet QC Table + Ad-Hoc Column & Column Picker). | Source Code Modular (`src/`, `backend/`, `frontend/`) |
+| **Phase 3: Implementation (Modular Build)** | **Sprint 1:** Ingestion Excel (`.xls with Statements` via `python-calamine`), Validasi Jam `00:00` (*Cutoff*), Lookup *Custom Media Tier/Hypestat* & *Newswire/Media Bazar*, serta Sinkronisasi *Takeout* Historis.<br>**Sprint 2:** Cloud AI Semantic Engine (*Spam/Iklan Takeout + Alasan*, *Newstrend Kalimat Aktif*, *3-Tier Spokesperson Extraction*, & *Ad-Hoc Columns*).<br>**Sprint 3:** Auto-Pivot Engine (*Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis*), Kurasi 2–3 Berita Kompetitor, & Triple-Deliverable Generator (`xlsxwriter`/`openpyxl` + `python-pptx` + `Wording`).<br>**Sprint 4:** Local Web UI (**Next.js** Frontend + **FastAPI** Backend + SSE Progress + Spreadsheet QC Table + Ad-Hoc Column & Column Picker). | Source Code Modular (`src/`, `backend/`, `frontend/`) |
 | **Phase 4: Testing & Quality Control (QA)** | Uji coba menggunakan dataset riil (maks. 800 baris), validasi akurasi *Takeout*, *Spokesperson*, *Sentiment*, dan *Newstrend* terhadap kurasi analis senior, serta verifikasi 0 selisih angka *Pivot*. | Laporan Hasil QA & Benchmark Performa |
 | **Phase 5: Local Deployment & Handover** | Paket skrip *one-click launcher* lokal (FastAPI + Next.js) agar analis dapat langsung menjalankan sistem di laptop Windows sebelum pukul 09.00 WIB. | Sistem Produksi Lokal Siap Pakai |
 
@@ -108,7 +108,7 @@ flowchart TD
     AI_Engine -->|"Update History Takeout & Isu Negatif"| SQLiteDB
     AI_Engine -->|"Data Bersih + Tabel Takeout Terdokumentasi"| AutoPivot["4. Auto-Pivot & Competitor Engine (Python pandas)<br/>- Pivot Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis<br/>- Kurasi 2-3 Berita Positif/Negatif Kompetitor (POV Kompetitor & Tier)"]
 
-    AutoPivot -->|"report_payload.json (Pasangan Media & URL Terkunci)"| ReportGen["5. Dual-Deliverable Report Generator (Python + 1x LLM Narrative)<br/>- Output 1: Excel Raw Data Cleaned & Pivot (.xlsx)<br/>- Output 2: Report Visual Klien (.pptx / .pdf) Tanpa Mismatch Media & URL"]
+    AutoPivot -->|"report_payload.json (Pasangan Media & URL Terkunci)"| ReportGen["5. Triple-Deliverable Report Generator (Python + 1x LLM Narrative)<br/>- Output 1: Excel Raw Data Cleaned & Pivot (.xlsx)<br/>- Output 2: Report Visual Klien (.pptx / .pdf) Tanpa Mismatch Media & URL<br/>- Output 3: Teks Wording Pengantar Email (.txt / Copy-to-Clipboard)"]
 ```
 
 ---
@@ -126,12 +126,13 @@ flowchart TD
 - **FR-02.1 (Deduplikasi `ID` & Sinkronisasi `Statements`):** Deduplikasi eksak berbasis `ID` pada sheet `News` dan sinkronisasi relasional dengan kolom `Report id` pada sheet `Statements`.
 - **FR-02.2 (Deteksi Jam Publikasi Default `00:00` untuk Akurasi *Cutoff*):**
   - Sistem memeriksa kolom `Date`. Apabila jam publikasi bernilai **`00:00`** (nilai *default* sistem Newstensity saat berita tidak memiliki jam tayang), sistem otomatis memberikan penanda **`Flag_Cutoff_00` = True** agar analis dapat memvalidasi kesesuaiannya dengan batas *cutoff* harian.
-- **FR-02.3 (Enrichment Atribut Media: *Newswire vs. Media Bazar* & *Media Tier / Hypestat*):**
+- **FR-02.3 (Enrichment Atribut Media: *Newswire vs. Media Bazar*, *Custom Media Tier* Klien, & *Hypestat*):**
   - Sistem memvalidasi dan mengelompokkan atribut **`Media Type Detail`** untuk membedakan antara **Newswire**, **Media Bazar**, dan media organik/arus utama. Berita yang teridentifikasi sebagai **Newswire** otomatis ditandai sebagai **`Takeout`** dengan alasan `"Takeout - Newswire"`.
-  - Sistem memvalidasi **`Media Tier`** (*Tier 1, 2, 3*) dan estimasi nilai/trafik media menggunakan tabel referensi lokal yang tersinkronisasi dengan data **Hypestat** (*domain lookup*), sehingga analis tidak perlu mengecek domain satu per satu secara manual.
-- **FR-02.4 (Penandaan `Takeout`, `Alasan_Spam`, & Sinkronisasi Historis hingga *Monthly Report*):**
-  - Berita yang masuk kategori *spam*, *newswire*, iklan klien, maupun **berita negatif sensitif yang di-*takeout* (atau tautannya menjadi *invalid/404*)** tidak dihapus tanpa jejak, melainkan diberi status **`Status_Takeout = Takeout`** dan wajib memiliki isi pada kolom **`Alasan_Spam`**.
-  - Setiap `ID` dan `Page/URL` berita yang berstatus `Takeout` (khususnya berita negatif sensitif yang di-*takeout*) disimpan secara persisten ke dalam tabel SQLite **`takeout_registry`**. Saat analis memproses data **Weekly** atau **Monthly Report**, sistem otomatis mengecek `takeout_registry` dan menyinkronkan status `Takeout` tersebut agar berita yang sudah di-*takeout* pada laporan harian tidak ikut terhitung kembali di laporan bulanan.
+  - Sistem mendukung tabel referensi master media di SQLite (`media_master`) yang menyimpan **`tier_bino`** (standar Binokular), **`client_custom_tier`** (aturan tier khusus klien seperti **`TIER BNI`** dari 13.000+ daftar media, di mana misal `beritasatu.com` bernilai Tier 1 di Binokular tetapi Tier 2 di BNI), serta estimasi nilai/trafik **Hypestat**, sehingga menggantikan kebutuhan VLOOKUP manual berulang di Excel.
+- **FR-02.4 (Penandaan `Takeout`, `Alasan_Spam`, Cek Silang `Req Upload`/`Takedown`, & Sinkronisasi Historis hingga *Monthly Report*):**
+  - Berita yang masuk kategori *spam*, *newswire*, iklan klien, maupun **berita negatif sensitif yang di-*takeout* / *takedown* (atau tautannya menjadi *invalid/404*)** tidak dihapus tanpa jejak, melainkan dipisahkan/diberi status **`Status_Takeout = Takeout`** dan wajib memiliki isi pada kolom **`Alasan_Spam`**.
+  - Sistem mendukung pencocokan otomatis (*URL matching*) terhadap daftar link kiriman klien (seperti daftar **`Req Upload`** berita rilis/counter-narrative atau daftar **`Takedown` / moderasi**) terhadap sheet `News`.
+  - Setiap `ID` dan `Page/URL` berita yang berstatus `Takeout` / `Takedown` disimpan secara persisten ke dalam tabel SQLite **`takeout_registry`** untuk sinkronisasi otomatis ke *Weekly* dan *Monthly Report*.
 
 ### FR-03: Standardisasi *Newstrend*, Konsistensi Sentimen, *Spokesperson Fallback*, & Kolom *Ad-Hoc*
 - **FR-03.1 (Penyesuaian *Newstrend* Berbasis `Content` & Format Kalimat Aktif):**
@@ -162,17 +163,20 @@ flowchart TD
   - Untuk pemantauan kompetitor harian/mingguan, sistem mengevaluasi sentimen berita kompetitor berdasarkan **sudut pandang (*POV*) kompetitor tersebut** (bukan POV klien utama).
   - Sistem secara otomatis memilih dan merekomendasikan **2–3 berita bersentimen Positif dan 2–3 berita bersentimen Negatif** terbaik untuk masing-masing kompetitor dengan memprioritaskan **`Media Tier`** tertinggi (*Tier 1* diutamakan).
 
-### FR-05: Dual-Deliverable Generation (*Raw Data Cleaned Excel* & *Report PPTX/PDF*) & Anti-Mismatch Media-URL
-Klien meminta **dua jenis output utama** pada setiap pengerjaan laporan (tanpa otomasi *Push Mail* pada ruang lingkup saat ini):
+### FR-05: Triple-Deliverable Generation (*Raw Data Cleaned Excel*, *Report PPTX/PDF*, & *Wording*) & Anti-Mismatch Media-URL
+Berdasarkan referensi *output* riil analis (studi kasus BNI Jember), sistem menghasilkan **tiga output utama** (tanpa otomasi *Push Mail*):
 - **FR-05.1 (Deliverable 1 — File Excel *Raw Data Cleaned & Pivot* `.xlsx` dengan *Excel Engineering*):**
-  - Menghasilkan file `.xlsx` final yang diserahkan ke klien sekaligus menjadi pegangan QC analis menggunakan **`xlsxwriter`** (untuk workbook baru yang rapi) dan **`openpyxl`** (jika menyuntikkan data ke template Excel klien yang sudah ada):
-    - Sheet **`News_Clean`**: *Raw data cleaned* siap pakai lengkap dengan `Content_Type`, `Spokesperson`, `Jabatan`, `Nama_Isu`, `Newstrends` terstandardisasi, `Flag_Cutoff_00`, serta kolom *ad-hoc* (`Kluster`, `Paid/Earned`). Dilengkapi *Excel Table*, *freeze panes*, *auto-fit column width*, *clickable hyperlink* pada URL, serta **Conditional Formatting** (kuning untuk `Flag_Cutoff_00`, merah/hijau lembut untuk sentimen).
-    - Sheet **`Takeout_Spam`**: Daftar berita yang di-*takeout* (*spam, iklan, newswire, isu negatif sensitif*) lengkap dengan kolom **`Alasan_Spam`** untuk mempermudah validasi analis.
-    - Sheet **`Statements`** (terfilter) dan Sheet **`Pivot`**: Menggunakan **rumus Excel dinamis (`COUNTIFS`, `SUM`)** serta *Native Excel Chart* sehingga apabila analis mengedit 1 sel di `News_Clean` secara manual di Excel, angka *Pivot* dan grafiknya otomatis ikut ter-update.
+  - Menghasilkan file `.xlsx` final menggunakan **`xlsxwriter`** (workbook baru) dan **`openpyxl`** (template Excel klien):
+    - Sheet **`News_Clean`**: *Raw data cleaned* siap pakai lengkap dengan `Date` & `Time` terpisah, *Client Custom Tier* (mis. `TIER BNI`), `Content_Type`, `Spokesperson`, `Jabatan`, `Nama_Isu`, `Newstrends` terstandardisasi, `Flag_Cutoff_00`, serta kolom *ad-hoc* (`Kluster`, `Paid/Earned`). Dilengkapi *Excel Table*, *freeze panes*, *auto-width*, *clickable hyperlink* URL, dan **Conditional Formatting**.
+    - Sheet **`Takeout_Spam` / `Takedown`**: Daftar berita yang di-*takeout*/*takedown* (*spam, iklan, newswire, isu negatif sensitif*) lengkap dengan kolom **`Alasan_Spam`** untuk mempermudah validasi analis.
+    - Sheet **`Statements`** (terfilter) dan Sheet **`Pivot`**: Menggunakan **rumus Excel dinamis (`COUNTIFS`, `SUM`)** yang 100% bebas error `#REF!` serta *Native Excel Chart*.
 - **FR-05.2 (Deliverable 2 — File Laporan Presentasi / Dokumen Visual `.pptx` / `.pdf` dengan Anti-Mismatch):**
   - AI **dilarang** menyusun tabel daftar berita atau menuliskan ulang URL/Nama Media secara bebas.
   - Seluruh daftar berita *highlight* (termasuk 2–3 berita positif/negatif kompetitor) diambil langsung oleh Python dari *DataFrame* asli berdasarkan kunci `ID`, sehingga pasangan **`Judul` — `Media Name` — `Media Tier` — `Page/URL`** dijamin **100% akurat dan tidak mungkin tertukar**.
-  - Mendukung pemetaan fleksibel ke *template* `.pptx` klien yang berubah-ubah melalui konfigurasi *mapping* pada `config.yaml` serta ekspor ke `.pdf` apabila dibutuhkan klien.
+  - Mendukung pemetaan fleksibel ke *template* `.pptx` klien melalui `config.yaml` serta ekspor ke `.pdf`.
+- **FR-05.3 (Deliverable 3 — Teks *Wording* Pengantar Email `.txt` / *Copy-to-Clipboard*):**
+  - Menghasilkan teks ***Wording*** terstruktur (Salam + periode & *cutoff*, *Perkembangan Sentimen* beserta rincian angka Media Online/Sosmed/Engagement/Tier, *Timeline Perkembangan Isu*, dan *Arah Percakapan Publik*).
+  - Di-generate langsung dari **`report_payload.json` + `narrative.json`** yang sama dengan PPTX sehingga menjamin **0% inkonsistensi angka** antara *Wording* dan *Slide* PPTX.
 
 ### FR-06: Local Web UI (Next.js + FastAPI) & Interactive Excel QC Assistant
 Untuk mempermudah pengoperasian harian oleh analis non-teknis tanpa harus membuka terminal atau mengedit file `config.yaml` secara manual:

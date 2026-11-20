@@ -1,6 +1,6 @@
 # Newstent — Analyst Workflow Automation Tool
 
-Alat bantu otomasi alur kerja analis (*Analyst Workflow Automation Tool*) untuk pengolahan data *media monitoring* **Newstensity (Binokular)**—mulai dari pembersihan *raw data* (`.xls with Statements`), penandaan *Takeout* & *Alasan Spam*, koreksi sentimen & standardisasi `Newstrends` berbasis Cloud AI, ekstraksi 3-tingkat *Spokesperson*, pembuatan *Pivot Table* & kurasi berita kompetitor, hingga menghasilkan **2 output utama klien: File Excel *Raw Data Cleaned* (`.xlsx`) dan Report Visual (`.pptx` / `.pdf`)** melalui **Local Web UI (Next.js + FastAPI)**.
+Alat bantu otomasi alur kerja analis (*Analyst Workflow Automation Tool*) untuk pengolahan data *media monitoring* **Newstensity (Binokular)**—mulai dari pembersihan *raw data* (`.xls with Statements`), penandaan *Takeout* & *Alasan Spam*, *lookup Custom Media Tier* klien, koreksi sentimen & standardisasi `Newstrends` berbasis Cloud AI, ekstraksi 3-tingkat *Spokesperson*, pembuatan *Pivot Table* & kurasi berita kompetitor, hingga menghasilkan **3 output utama klien: File Excel *Raw Data Cleaned* (`.xlsx`), Report Visual (`.pptx` / `.pdf`), dan Teks *Wording*** melalui **Local Web UI (Next.js + FastAPI)**.
 
 ---
 

@@ -27,10 +27,11 @@ Pada layanan *media monitoring* **Newstent (Newstensity)**, data pemberitaan (*o
     - Sentimen **Negatif**: biasanya mengandung/diawali kata **`"Kasus ..."`**
     - Sentimen **Netral**: biasanya mengandung/diawali kata **`"Tanggapan ..."`**
   - **Konsistensi Isu Negatif:** Apabila sebuah isu bersentimen negatif muncul kembali di artikel lain atau hari berikutnya, label sentimen negatif dan penamaan isunya **wajib konsisten**.
-- **Pemeriksaan Atribut Media secara Detail:** Analis harus memperhatikan dan mengelompokkan atribut media yang meliputi:
+- **Pemeriksaan Atribut Media secara Detail & *Custom Tier* Klien:** Analis harus memperhatikan dan mengelompokkan atribut media yang meliputi:
   - **`Content Type`**: Membedakan antara berita **Rilis (*Press Release*)** vs. **Organik**.
-  - **`Media Tier` & Nilai Media**: Memvalidasi tingkatan media (*Tier 1, 2, 3*) beserta nilai/trafik media (yang sering kali harus dicek silang melalui **Hypestat**).
+  - **`Media Tier` Standar vs. *Custom Tier* Klien & Nilai Media**: Selain *tier* standar Binokular (`tier bino`) dan pengecekan nilai/trafik media melalui **Hypestat**, beberapa klien memiliki standar **Tier Media sendiri** (contoh referensi BNI: `beritasatu.com` tergolong Tier 1 di Binokular, namun masuk Tier 2 pada daftar `TIER BNI` yang memuat 13.000+ media).
   - **`Media Type Detail`**: Membedakan antara **Newswire** (yang wajib di-*takeout*) vs. **Media Bazar** vs. media organik.
+  - **Cek Silang Daftar Link Klien (`Req Upload` / `Takedown`):** Pada kasus tertentu (seperti laporan krisis/isu), analis juga perlu mencocokkan daftar tautan berita rilis yang diminta klien (*Req Upload*) maupun daftar berita yang sudah di-*takedown* terhadap data *crawling*.
 
 ### C. Beban Kerja *Pivot*, Pencarian *Spokesperson* Berita Rilis, & Kurasi Berita Kompetitor
 - **Pencarian *Spokesperson* & Jabatan yang Sangat Menyita Waktu:**
@@ -39,12 +40,13 @@ Pada layanan *media monitoring* **Newstent (Newstensity)**, data pemberitaan (*o
 - **Kurasi Berita Kompetitor:**
   - Untuk pemantauan kompetitor harian, analis harus memilih **2–3 berita bersentimen positif dan negatif** berdasarkan **sudut pandang (*POV*) kompetitor itu sendiri** dengan mempertimbangkan **`Media Tier`**-nya.
 
-### D. Tekanan *Deadline* Pagi, Dua Output Utama Klien, & Permintaan Kolom *Ad-Hoc*
-- **Tekanan *Deadline* 09.00 WIB (Multi-Klien):** Tim harus menyelesaikan laporan harian pagi dengan tenggat ketat (umumnya pukul **09.00 WIB**) untuk hingga **3 klien sekaligus**, di samping laporan *Weekly*, *Monthly*, *Ad-hoc*, dan *Crisis*.
-- **Dua Output Utama yang Diminta Klien (*Raw Data Cleaned Excel* & *Report PPTX/PDF*):**
-  Klien tidak hanya meminta laporan presentasi visual, tetapi **juga meminta file data Excel yang sudah bersih (*Raw Data Cleaned*)**. Dengan demikian, setiap pengerjaan laporan wajib menghasilkan **2 output utama**:
-  1. **File Excel *Raw Data Cleaned* (`.xlsx`):** Dataset berita/sosmed yang sudah bersih dari *spam/takeout*, sentimen & *Newstrend*-nya telah dikoreksi, *Spokesperson & Jabatan* terisi, serta dilengkapi sheet *Pivot*.
-  2. **File Laporan Presentasi (`.pptx` / `.pdf`):** Laporan visual berisi grafik, tabel rekapitulasi, kurasi berita kompetitor, dan ringkasan analisis sesuai *template* klien.
+### D. Tekanan *Deadline* Pagi, Tiga Output Utama Klien, & Permintaan Kolom *Ad-Hoc*
+- **Tekanan *Deadline* 09.00 WIB (Multi-Klien):** Tim harus menyelesaikan laporan harian pagi dengan tenggat ketat (umumnya pukul **09.00 WIB**) untuk hingga **3 klien sekaligus**, di samping laporan *Weekly*, *Monthly*, *Ad-hoc*, dan *Crisis* (dengan *cutoff* tertentu, misal pukul 15.00 WIB).
+- **Tiga Output Utama yang Diberikan ke Klien (*Triple Deliverables*):**
+  Berdasarkan referensi hasil kerja analis (studi kasus BNI Jember), setiap pengerjaan laporan menghasilkan **3 output utama**:
+  1. **File Excel *Raw Data Cleaned* & *Pivot* (`.xlsx`):** Dataset berita/sosmed yang sudah bersih dari *spam/takeout/takedown*, sentimen & *Newstrend*-nya telah dikoreksi, *Spokesperson & Jabatan* serta *Custom Media Tier* klien terisi, dan dilengkapi sheet *Pivot* yang akurat (bebas *formula error* seperti `#REF!`).
+  2. **File Laporan Presentasi (`.pptx` / `.pdf`):** Laporan visual berisi *Executive Summary*, *Media Breakdown*, *Timeline*, kurasi berita kompetitor, *PR Analysis*, dan rekomendasi aksi sesuai *template* klien.
+  3. **Teks *Wording* (Pengantar / *Body Email*):** Ringkasan teks terstruktur (*Perkembangan Sentimen*, rincian angka Media/Tier, *Timeline Isu*, dan *Arah Percakapan Publik*) yang siap disalin ke *body email* klien dengan angka yang 100% sinkron dengan isi PPTX.
 - **Perubahan Template & Kolom *Ad-Hoc* (`Kluster`, `Paid`, `Earned`):** Template laporan klien kerap berubah dan sering kali terdapat permintaan penambahan kolom secara mendadak (*ad-hoc*), seperti pengelompokan **`Kluster`**, **`Paid`**, maupun **`Earned`**.
 - **Ketidakakuratan Pembuatan Template Langsung oleh AI:** Percobaan meminta AI (ChatGPT) menyusun langsung tabel/template laporan akhir sering menghasilkan kesalahan fatal, seperti **ketidaksesuaian (*mismatch*) antara `Nama Media` dengan `URL` berita**.
 
@@ -52,7 +54,7 @@ Pada layanan *media monitoring* **Newstent (Newstensity)**, data pemberitaan (*o
 
 ## 2. Alur Kerja Operasional Saat Ini (*As-Is Workflow*)
 
-Untuk tahap awal proyek ini (berdasarkan pemetaan diskusi sementara), **Tahap 1 dan Tahap 2 (Hulu)** sementara diposisikan tetap berjalan secara manual di dashboard, sedangkan **Tahap 3 hingga Tahap 6 (Hilir — dari Data Cleaning hingga 2 Output Laporan Jadi)** dijadikan fokus utama yang akan diotomasi:
+Untuk tahap awal proyek ini (berdasarkan pemetaan diskusi sementara), **Tahap 1 dan Tahap 2 (Hulu)** sementara diposisikan tetap berjalan secara manual di dashboard, sedangkan **Tahap 3 hingga Tahap 6 (Hilir — dari Data Cleaning hingga 3 Output Laporan Jadi)** dijadikan fokus utama yang akan diotomasi:
 
 ```mermaid
 flowchart TD
@@ -60,11 +62,11 @@ flowchart TD
         A["Tahap 1: Setup Topik & Cutoff di Dashboard<br/>(Menu My Topics: Logika AND, OR, NOT & Range Waktu)"] --> B["Tahap 2: Request & Unduh Raw Data Manual<br/>(Menu Reporting: Wajib Pilih .xls with Statements)"]
     end
 
-    subgraph Hilir_Fokus_Otomasi["Hilir: Fokus Pengolahan & Target Otomasi (Cleaning s.d. Report Jadi)"]
-        B --> C["Tahap 3: Data Cleaning, Takeout, & Cek Atribut Media<br/>(Filter Iklan/Newswire -> Tandai Takeout & Alasan Spam, Cek Jam 00:00, Cek Hypestat/Media Bazar)"]
+    subgraph Hilir_Fokus_Otomasi["Hilir: Fokus Pengolahan & Target Otomasi (Cleaning s.d. 3 Output Jadi)"]
+        B --> C["Tahap 3: Data Cleaning, Takeout, & Cek Atribut Media<br/>(Filter Iklan/Newswire -> Tandai Takeout & Alasan Spam, Cek Jam 00:00, Lookup Custom Tier/Hypestat, Cek Req Upload/Takedown)"]
         C --> D["Tahap 4: Standardisasi Sentimen, Newstrend, & Ekstraksi Spokesperson<br/>(Via Djirolu / ChatGPT: Umumnya Mengandung 'Kasus...'/'Tanggapan...', Cek Statements -> Content -> Isi '0', Kolom Ad-Hoc)"]
         D --> E["Tahap 5: Penyusunan Pivot Table & Kurasi Kompetitor<br/>(Pivot Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis, & Pilih 2-3 Berita Kompetitor)"]
-        E --> F["Tahap 6: Penyusunan 2 Output Akhir (Excel Cleaned & Report PPTX/PDF)<br/>(Finalisasi File Excel Cleaned + Input ke Template PPTX/PDF Klien & Sinkronisasi Takeout ke Monthly Report)"]
+        E --> F["Tahap 6: Penyusunan 3 Output Akhir (Excel Cleaned, Report PPTX/PDF, & Wording)<br/>(Finalisasi Excel Cleaned + Input Template PPTX/PDF + Tulis Wording Email & Sync Takeout Bulanan)"]
     end
 ```
 
@@ -101,22 +103,23 @@ flowchart TD
 
 ## 4. Alur Kerja Target Setelah Otomasi (*To-Be Workflow*)
 
-Sebagai pendekatan awal pengembangan, **pengaturan topik dan pengunduhan Excel dari dashboard sementara tetap dilakukan manual oleh analis**, kemudian sistem otomasi mengambil alih seluruh proses mulai dari *Data Cleaning* hingga menghasilkan **2 output akhir untuk klien (*Raw Data Cleaned Excel* & *Report PPTX/PDF*)**:
+Sebagai pendekatan awal pengembangan, **pengaturan topik dan pengunduhan Excel dari dashboard sementara tetap dilakukan manual oleh analis**, kemudian sistem otomasi mengambil alih seluruh proses mulai dari *Data Cleaning* hingga menghasilkan **3 output akhir untuk klien (*Raw Data Cleaned Excel*, *Report PPTX/PDF*, & *Wording*)**:
 
 ```mermaid
 flowchart TD
-    M1["1. Analis Unduh Raw Excel<br/>(Sementara Manual: Setup Topik, Cutoff, & Download .xls with Statements)"] --> A1["2. Auto-Cleaning, Takeout & Media Enrichment<br/>(Filter Iklan/Newswire -> Kolom Takeout & Alasan Spam, Flag Jam 00:00, Lookup Tier/Hypestat, Simpan History Takeout Bulanan)"]
+    M1["1. Analis Unduh Raw Excel<br/>(Sementara Manual: Setup Topik, Cutoff, & Download .xls with Statements)"] --> A1["2. Auto-Cleaning, Takeout & Media Enrichment<br/>(Filter Iklan/Newswire -> Kolom Takeout & Alasan Spam, Flag Jam 00:00, Lookup Custom Tier/Hypestat, Cek Req Upload/Takedown)"]
     A1 --> A2["3. AI Standardization & Spokesperson Fallback<br/>(Newstrend Kalimat Aktif 'Kasus...'/'Tanggapan...', Cek Statements -> Content -> '0', Kolom Ad-Hoc Kluster/Paid/Earned)"]
-    A2 --> A3["4. Auto-Pivot & Generate 2 Output Klien<br/>- Output 1: Excel Raw Data Cleaned & Pivot (.xlsx)<br/>- Output 2: Report Visual Klien (.pptx / .pdf)"]
-    A3 --> M2["5. Final QC Analis<br/>(Validasi Kolom Alasan Spam & 2 File Output Siap Diserahkan < 09.00 WIB)"]
+    A2 --> A3["4. Auto-Pivot & Generate 3 Output Klien<br/>- Output 1: Excel Raw Data Cleaned & Pivot (.xlsx)<br/>- Output 2: Report Visual Klien (.pptx / .pdf)<br/>- Output 3: Teks Wording Pengantar Email (Sinkron 100% dgn PPTX)"]
+    A3 --> M2["5. Final QC Analis<br/>(Validasi Kolom Alasan Spam & 3 Output Siap Diserahkan < 09.00 WIB)"]
 ```
 
 ### Keunggulan Utama Sistem *To-Be* untuk Tim Analis:
 1. **Antarmuka Web Lokal (*Local Web UI*) yang Ramah Analis & Interaktif:**
    - Analis tidak perlu berurusan dengan perintah terminal maupun mengedit file konfigurasi secara manual. Cukup melalui browser di perangkat lokal, analis dapat melakukan *drag-and-drop* file `.xls with Statements`, memantau *progress bar* proses secara *real-time*, melakukan **QC interaktif** (tab khusus pengecekan berita berjam `00:00`, tab *Takeout & Alasan Spam*, serta tab *Berita Rilis & Spokesperson `0`*), menambah kolom *ad-hoc* lewat formulir, dan memilih kolom mana saja yang diekspor ke klien (*Column Picker*).
-2. **Menghasilkan 2 Output Utama Sekaligus (*Raw Data Cleaned Excel* & *Report PPTX/PDF*):**
-   - **Output 1 — File Excel *Raw Data Cleaned* & *Pivot* (`.xlsx`):** Siap diserahkan kepada klien yang meminta data Excel bersih, lengkap dengan format rapi, *highlight* warna otomatis (*conditional formatting*), **rumus *Pivot* dinamis** (jika analis mengubah 1 sel di Excel, angka *Pivot* & grafik ikut ter-update otomatis), serta sheet `Takeout_Spam` (berisi kolom **`Alasan_Spam`**) untuk keperluan QC.
+2. **Menghasilkan 3 Output Utama Sekaligus (*Raw Data Cleaned Excel*, *Report PPTX/PDF*, & *Wording*):**
+   - **Output 1 — File Excel *Raw Data Cleaned* & *Pivot* (`.xlsx`):** Siap diserahkan kepada klien yang meminta data Excel bersih, lengkap dengan format rapi, *Custom Tier* klien (seperti `TIER BNI`), *highlight* warna otomatis (*conditional formatting*), **rumus *Pivot* dinamis** bebas error `#REF!`, serta sheet `Takeout_Spam` / `Takedown` (berisi kolom **`Alasan_Spam`**) untuk keperluan QC.
    - **Output 2 — File Laporan Presentasi (`.pptx` / `.pdf`):** Visualisasi grafik, rekapitulasi isu, kurasi berita kompetitor, dan narasi analisis langsung terisi ke dalam *template* klien.
+   - **Output 3 — Teks *Wording* (Siap *Copy-Paste* ke Email Klien):** Ringkasan teks *Perkembangan Sentimen*, rincian angka Media/Tier, *Timeline Isu*, dan *Arah Percakapan Publik* yang di-generate dari **sumber angka yang sama persis** dengan PPTX (menghilangkan risiko selisih angka antara *Wording* dan *Slide* PPTX).
 3. **Penandaan `Takeout` & `Alasan Spam` + Memori Sinkronisasi *Monthly Report*:**
    - Sistem tidak membuang baris secara gelap, melainkan menambahkan kolom **`Status_Takeout`** dan **`Alasan_Spam`** (misal: *"Takeout - Iklan/Promosi BRI"*, *"Takeout - Newswire"*, *"Takeout - Isu Negatif Sensitif"*), serta menyimpannya ke database lokal agar otomatis tersinkronisasi saat penarikan *Weekly* maupun *Monthly Report*.
 4. **Otomasi 3-Langkah *Spokesperson* & Jabatan (`Statements` $\rightarrow$ `Content` $\rightarrow$ `0`):**
@@ -135,7 +138,7 @@ flowchart TD
 
 | Termasuk Ruang Lingkup Otomasi (*In-Scope v1*) | Di Luar Ruang Lingkup Otomasi (*Out-of-Scope / Sementara Manual*) |
 | :--- | :--- |
-| - **Antarmuka Web Lokal (*Local Web UI*):** Aplikasi web lokal yang memudahkan analis mengunggah file `.xls with Statements`, memantau progres, melakukan *review/QC* tabel mirip Excel di browser (*Flag `00:00`*, *Takeout*, *Spokesperson*), mengatur kolom *ad-hoc*, serta mengunduh kedua output akhir.<br>- **Pembersihan, Takeout & Validasi Cutoff:** Deduplikasi `ID`, penandaan `Takeout` + `Alasan Spam` (termasuk filter iklan/newswire), *flagging* berita dengan jam *default* `00:00`, dan sinkronisasi database *Takeout* hingga *Monthly Report*.<br>- **Standardisasi Newstrend, Sentimen & Atribut Media:** Koreksi sentimen sesuai POV klien/kompetitor, pembentukan *Newstrend* kalimat aktif dengan batas maksimal kata (umumnya mengandung *"Kasus..."* / *"Tanggapan..."*), klasifikasi *Rilis vs. Organik*, *Newswire vs. Media Bazar*, *lookup Media Tier/Hypestat*, serta kolom *ad-hoc* (*Kluster, Paid, Earned*).<br>- **Otomasi Spokesperson & Pivot:** Ekstraksi *Spokesperson & Jabatan* (`Statements` $\rightarrow$ `Content` $\rightarrow$ `0`), pembuatan *Pivot* (Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis), dan pemilihan 2–3 berita positif/negatif kompetitor berdasarkan *Media Tier*.<br>- **Pembuatan 2 Output Akhir Klien:** (1) File Excel *Raw Data Cleaned* + *Pivot* ber-rumus dinamis (`.xlsx`) dan (2) File Laporan Akhir (`.pptx` / `.pdf`) sesuai *template* klien tanpa risiko *mismatch* `Nama Media` dan `URL`. | - **Pengaturan Topik (`My Topics`):** Pembuatan topik dan perangkaian logika `AND`, `OR`, `NOT` di dashboard Newstensity sementara tetap dilakukan manual oleh analis.<br>- **Penentuan *Range* Waktu (*Cutoff*) & *Request/Download* Data:** Proses *request* dan pengunduhan file Excel mentah (`.xls with Statements`) dari menu *Reporting* dashboard Newstensity sementara tetap dijalankan manual.<br>- **Pengiriman Email / Push Mail:** Fokus otomasi berhenti hingga kedua file output (*Raw Data Cleaned Excel* & *Report PPTX/PDF*) selesai dan siap diserahkan.<br>- **Deployment Cloud/Server Produksi & Chatbot:** Pada tahap v1, Web UI berjalan ringan di perangkat lokal analis (belum termasuk integrasi *chatbot* WA/Telegram). |
+| - **Antarmuka Web Lokal (*Local Web UI*):** Aplikasi web lokal yang memudahkan analis mengunggah file `.xls with Statements`, memantau progres, melakukan *review/QC* tabel mirip Excel di browser (*Flag `00:00`*, *Takeout*, *Spokesperson*), mengatur kolom *ad-hoc*, serta mengunduh/menyalin ketiga output akhir.<br>- **Pembersihan, Takeout & Validasi Cutoff:** Deduplikasi `ID`, penandaan `Takeout` + `Alasan Spam` (termasuk filter iklan/newswire), *flagging* berita dengan jam *default* `00:00`, cek silang daftar link klien (`Req Upload` / `Takedown`), dan sinkronisasi database *Takeout* hingga *Monthly Report*.<br>- **Standardisasi Newstrend, Sentimen & Atribut Media:** Koreksi sentimen sesuai POV klien/kompetitor, pembentukan *Newstrend* kalimat aktif dengan batas maksimal kata (umumnya mengandung *"Kasus..."* / *"Tanggapan..."*), klasifikasi *Rilis vs. Organik*, *Newswire vs. Media Bazar*, *lookup Custom Media Tier klien (mis. Tier-BNI) / Hypestat*, serta kolom *ad-hoc* (*Kluster, Paid, Earned*).<br>- **Otomasi Spokesperson & Pivot:** Ekstraksi *Spokesperson & Jabatan* (`Statements` $\rightarrow$ `Content` $\rightarrow$ `0`), pembuatan *Pivot* (Tipe Media, Newstrend, Nama Isu, Spokesperson Rilis), dan pemilihan 2–3 berita positif/negatif kompetitor berdasarkan *Media Tier*.<br>- **Pembuatan 3 Output Akhir Klien:** (1) File Excel *Raw Data Cleaned* + *Pivot* ber-rumus dinamis (`.xlsx`), (2) File Laporan Akhir (`.pptx` / `.pdf`) sesuai *template* klien tanpa risiko *mismatch* `Nama Media` dan `URL`, serta (3) Teks ***Wording*** siap *copy-paste* yang 100% sinkron angkanya dengan PPTX. | - **Pengaturan Topik (`My Topics`):** Pembuatan topik dan perangkaian logika `AND`, `OR`, `NOT` di dashboard Newstensity sementara tetap dilakukan manual oleh analis.<br>- **Penentuan *Range* Waktu (*Cutoff*) & *Request/Download* Data:** Proses *request* dan pengunduhan file Excel mentah (`.xls with Statements`) dari menu *Reporting* dashboard Newstensity sementara tetap dijalankan manual.<br>- **Pengiriman Email / Push Mail:** Fokus otomasi berhenti hingga ketiga output (*Raw Data Cleaned Excel*, *Report PPTX/PDF*, & *Wording*) selesai dan siap diserahkan.<br>- **Deployment Cloud/Server Produksi & Chatbot:** Pada tahap v1, Web UI berjalan ringan di perangkat lokal analis (belum termasuk integrasi *chatbot* WA/Telegram). |
 
 ### B. Perbandingan Manfaat Bisnis & Target KPI Operasional
 
@@ -144,4 +147,4 @@ flowchart TD
 | **Kapasitas & Kecepatan Pagi Hari** | Rawan *hit limit* setelah 2 klien; pengecekan *Spokesperson* & *Newstrend* sangat menyita waktu. | **Bebas *Hit Limit* & Cepat** — Memproses hingga 800 baris lengkap dengan *Spokesperson* & *Pivot* dalam **$< 5$ menit/klien**. |
 | **Validasi *Spam* & *Monthly Sync*** | Pengecekan manual dan rawan terhitung ulang saat rekap bulanan. | **Terdokumentasi & Tersinkronisasi** — Tersedia kolom `Alasan Spam` untuk QC cepat dan sinkronisasi status `Takeout` otomatis hingga *Monthly Report*. |
 | **Akurasi Nama Media, URL, & Pivot** | Pembuatan template langsung via AI sering salah memasangkan Nama Media & URL. | **Akurasi Data & Pasangan URL 100%** — Nama Media, URL, dan angka Pivot dijamin 100% sesuai data asli tanpa halusinasi AI. |
-| **Efisiensi Biaya Operasional AI** | Langganan akun AI bulanan tetap (~Rp 330.000/akun/bulan) namun masih terkena batas kuota pakai. | **Sangat Hemat (~Rp 350 – Rp 600 perak per laporan 800 baris)** atau hanya sekitar **Rp 40.000 – Rp 75.000/bulan** untuk 90+ laporan harian. |
+| **Estimasi Efisiensi Biaya Operasional AI** | Langganan akun AI bulanan tetap (estimasi ~Rp 330.000/akun/bulan untuk ChatGPT Plus) namun masih rentan terkena batas kuota pakai (*hit limit*). | **Estimasi Biaya Sangat Hemat (~Rp 350 – Rp 600 per laporan 800 baris, atau estimasi ~Rp 40.000 – Rp 75.000/bulan untuk 90+ laporan harian).**<br>*Dasar perhitungan:* Menggunakan skema *pay-as-you-go* **API DeepSeek** (~Rp 2.000–Rp 4.000 per 1 juta token + diskon *auto-cache* hingga 75–90%) yang dikombinasikan dengan penyaringan lokal (deduplikasi, *smart slicing*, & *cache* lokal), sehingga 1 laporan 800 baris diperkirakan hanya mengonsumsi **~85.000 – 115.000 token** *(rincian simulasi token tersedia di [SRS.md](./SRS.md))*. |
