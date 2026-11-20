@@ -49,7 +49,7 @@ flowchart LR
 
 | Peran di Sistem | Model & Provider | Estimasi Biaya | Alasan Pemilihan & Karakteristik |
 | :--- | :--- | :--- | :--- |
-| **Primary Model (Default)** | **DeepSeek-V4.1 / DeepSeek-V3.1 (`deepseek-chat`)** *(via DeepSeek API / OpenRouter / DeepInfra)* | ~Rp 2.000–Rp 4.000 per 1M Token (diskon *Auto-Cache* hingga 75–90%) | - **Penalaran Logika Terbaik di Kelas Open-Source:** Sangat presisi dalam mengeksekusi aturan spesifik klien (seperti filter iklan BRI, *prefix Newstrend* `"Kasus..."` / `"Tanggapan..."`, ekstraksi *Spokesperson* dari `Content`, dan kolom *ad-hoc*).<br>- **Automatic Context Caching:** *System Prompt* & *Client Brief* yang berulang otomatis di-*cache* oleh server.<br>- **Bebas Vendor Lock-in:** 100% *OpenAI-compatible*. |
+| **Primary Model (Default)** | **DeepSeek-Flash (`deepseek-flash` / V4.1-Flash)** & **DeepSeek-V4-Pro** *(via DeepSeek API Resmi / OpenRouter)* | **Off-Peak (< 08.00 WIB / Weekend):** \$0.003 Hit / \$0.15 Miss / \$0.60 Out per 1M Token<br>**Peak (08.00–11.00 WIB):** \$0.006 Hit / \$0.30 Miss / \$1.20 Out per 1M Token | - **Penalaran Logika Terbaik di Kelas Open-Source:** Sangat presisi dalam mengeksekusi aturan spesifik klien (seperti filter iklan BRI, *prefix Newstrend* `"Kasus..."` / `"Tanggapan..."`, ekstraksi *Spokesperson* dari `Content`, dan kolom *ad-hoc*).<br>- **Automatic Context Caching:** *System Prompt* & *Client Brief* yang berulang otomatis di-*cache* di server (diskon hingga 98% pada *Cache Hit*).<br>- **Diskon Off-Peak 50%:** Eksekusi sebelum pukul **08.00 WIB** atau akhir pekan otomatis mendapat tarif separuh harga.<br>- **Bebas Vendor Lock-in:** 100% *OpenAI-compatible*. |
 | **Secondary Open-Source Model** | **Qwen 2.5 72B / Qwen 3** *(via OpenRouter / DeepInfra / Alibaba Cloud)* | ~\$0.12 – \$0.30 / 1M Token | Sangat kuat pada tata bahasa Indonesia (penyusunan kalimat aktif *Newstrend* dengan batas maksimal kata), cocok sebagai *secondary model* atau *fallback*. |
 | **Fast Open-Source Fallback** | **Llama 3.3 70B Instruct** *(via Groq Cloud API)* | **Free Dev Tier** / Paid: ~\$0.59 / 1M Token | Kecepatan *inference* ekstrem (>300 token/detik), menjadi cadangan instan di jam sibuk pagi hari. |
 | **Optional Backup** | **Gemini 2.5 Flash** *(via Google AI Studio)* | **Free Tier** tersedia | Cadangan gratis dengan *context window* 1M token dan *Native JSON Schema* saat pengujian lokal. |
@@ -84,12 +84,24 @@ flowchart LR
 5. **Micro-Batching (25–35 Berita/Call) & Dynamic Ad-Hoc JSON Schema (`Pydantic`):** Mengirim berita per kloter dengan skema JSON padat yang otomatis menyertakan kolom *ad-hoc* jika diaktifkan di `config.yaml`.
 6. **Local SQLite Multi-Table Caching (`sqlite3`):** Menyimpan hasil klasifikasi AI, memori isu negatif, daftar domain *Hypestat/Media Tier*, dan riwayat *Takeout* di database lokal (`data/newstent_state.db`) sehingga *re-run* dan kompilasi *Monthly Report* memakan 0 token.
 
-### E. Estimasi Kebutuhan Token & Simulasi Biaya Bulanan (800 Baris per Run)
+### E. Tarif Resmi DeepSeek API & Simulasi Biaya Bulanan (800 Baris per Run)
 
+Mengacu pada dokumentasi tarif resmi **DeepSeek API (`api-docs.deepseek.com`)** per **1 juta token** (dengan perbedaan tarif *Off-Peak* vs. *Peak*):
+
+| Model Resmi DeepSeek | Jam Eksekusi (WIB) | Input (*Cache Hit*) | Input (*Cache Miss*) | Output |
+| :--- | :--- | :--- | :--- | :--- |
+| **`DeepSeek-Flash`** *(V4.1-Flash)* | **Off-Peak (Diskon 50%):** Di luar jam *Peak* (termasuk **< 08.00 WIB** & *Weekend* penuh)<br>**Peak:** Senin–Jumat **08.00–11.00 WIB** & **13.00–17.00 WIB** *(01:00–04:00 & 06:00–10:00 UTC)* | \$0.003<br>\$0.006 | \$0.15<br>\$0.30 | \$0.60<br>\$1.20 |
+| **`DeepSeek-V4-Pro`** *(Opsional Pass 3)* | **Off-Peak (Diskon 50%)**<br>**Peak** | \$0.022<br>\$0.044 | \$0.66<br>\$1.32 | \$1.98<br>\$3.96 |
+
+#### Simulasi Biaya Operasional (Asumsi 800 Baris Baru: ~25k *Cache Hit* + ~50k *Cache Miss* + ~22k Output, Kurs Rp 16.000/USD)
 - **Konsumsi Token per 1x Full Run (800 Baris Baru):** ~85.000 – 115.000 Token total (*Pass 1 Batching* + *Pass 2 Global Newstrend & Negative Consistency* + *Pass 3 Narrative Engine*).
-- **Biaya per 1x Full Run (DeepSeek API / OpenRouter):** **~\$0.020 – \$0.035 USD (~Rp 320 – Rp 560 perak)**.
+- **Biaya 1x Full Run — *Off-Peak* (Dijalankan < 08.00 WIB / *Weekend*, `DeepSeek-Flash`):** **~\$0.021 USD (~Rp 335 perak)**.
+- **Biaya 1x Full Run — *Peak* (Dijalankan 08.00–09.00 WIB Senin–Jumat, `DeepSeek-Flash`):** **~\$0.042 USD (~Rp 665 perak)**.
 - **Biaya Re-Run Testing / Sinkronisasi Monthly Report (SQLite Cache Hit):** **Rp 0 – Rp 50 perak**.
-- **Estimasi Anggaran 1 Bulan Penuh (90 Report Harian + 30x Testing Full Run):** **~\$2.50 – \$4.50 USD (~Rp 40.000 – Rp 72.000 / bulan)**.
+- **Estimasi Anggaran 1 Bulan Penuh (90 Report Harian + 30x Testing Full Run):**
+  - Jika mayoritas dijalankan **< 08.00 WIB (*Off-Peak*)**: **~\$2.50 – \$3.50 USD (~Rp 40.000 – Rp 56.000 / bulan)**.
+  - Jika mayoritas dijalankan **08.00–09.00 WIB (*Peak*)**: **~\$4.50 – \$5.50 USD (~Rp 72.000 – Rp 88.000 / bulan)**.
+  - *(Opsional: Menambahkan `DeepSeek-V4-Pro` khusus untuk Pass 3 Executive Summary hanya menambah ~Rp 100–Rp 190 perak per laporan).*
 
 ---
 
