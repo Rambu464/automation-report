@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Trash2, Save, Upload, CheckCircle2, UserPlus, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Save, Upload, CheckCircle2, UserPlus, AlertCircle, Presentation } from "lucide-react";
 import {
   ClientConfigData,
   createClientProfile,
   fetchClientConfig,
   importMediaMaster,
   updateClientConfig,
+  uploadClientPptxTemplate,
 } from "@/lib/api";
 
 interface SettingsPanelProps {
@@ -44,6 +45,11 @@ export default function SettingsPanel({
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [tierKey, setTierKey] = useState<string>(clientId);
   const [mediaMsg, setMediaMsg] = useState<string>("");
+
+  // PPTX Template Upload
+  const [pptxFile, setPptxFile] = useState<File | null>(null);
+  const [pptxMsg, setPptxMsg] = useState<string>("");
+  const [pptxErr, setPptxErr] = useState<string>("");
 
   useEffect(() => {
     setTierKey(clientId);
@@ -120,6 +126,21 @@ export default function SettingsPanel({
       `Berhasil mengimpor/memperbarui ${res.records_upserted} domain ke SQLite media_master_hypestat.`
     );
     setMediaFile(null);
+  };
+
+  const handleUploadPptx = async () => {
+    if (!pptxFile) return;
+    setPptxErr("");
+    setPptxMsg("");
+    try {
+      const res = await uploadClientPptxTemplate(clientId, pptxFile);
+      setPptxMsg(
+        `Template PPTX berhasil disimpan ke ${res.template_path} (${(res.size_bytes / 1024).toFixed(1)} KB).`
+      );
+      setPptxFile(null);
+    } catch (err) {
+      setPptxErr(err instanceof Error ? err.message : "Gagal mengunggah template PPTX.");
+    }
   };
 
   return (
@@ -310,56 +331,103 @@ export default function SettingsPanel({
           )}
         </div>
 
-        {/* Right: Media Master CSV/XLSX Importer */}
-        <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Import Master Media &amp; Custom Tier (SQLite)
-            </h2>
-            <p className="text-xs text-slate-500">
-              Unggah file <code>.xlsx</code> atau <code>.csv</code> berisi daftar domain,{" "}
-              <code>tier_bino</code>, <code>TIER &lt;KLIEN&gt;</code>, <code>Newswire</code>/
-              <code>Media Bazar</code>, dan trafik Hypestat.
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">
-              Client Key untuk Custom Tier (Opsional, mis. bri / bni)
-            </label>
-            <input
-              type="text"
-              value={tierKey}
-              onChange={(e) => setTierKey(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
-            />
-          </div>
-
-          <div>
-            <input
-              type="file"
-              accept=".csv,.xls,.xlsx"
-              onChange={(e) => setMediaFile(e.target.files?.[0] || null)}
-              className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
-            />
-          </div>
-
-          <button
-            type="button"
-            disabled={!mediaFile}
-            onClick={handleImportMedia}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
-          >
-            <Upload className="h-4 w-4" />
-            Import &amp; Upsert ke SQLite
-          </button>
-
-          {mediaMsg && (
-            <div className="flex items-center gap-2 rounded-lg bg-emerald-50 p-2.5 text-xs text-emerald-800">
-              <CheckCircle2 className="h-4 w-4" />
-              <span>{mediaMsg}</span>
+        {/* Right Column: Media Master Importer + PPTX Template Uploader */}
+        <div className="space-y-6">
+          <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Import Master Media &amp; Custom Tier (SQLite)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Unggah file <code>.xlsx</code> atau <code>.csv</code> berisi daftar domain,{" "}
+                <code>tier_bino</code>, <code>TIER &lt;KLIEN&gt;</code>, <code>Newswire</code>/
+                <code>Media Bazar</code>, dan trafik Hypestat.
+              </p>
             </div>
-          )}
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
+                Client Key untuk Custom Tier (Opsional, mis. bri / bni)
+              </label>
+              <input
+                type="text"
+                value={tierKey}
+                onChange={(e) => setTierKey(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+              />
+            </div>
+
+            <div>
+              <input
+                type="file"
+                accept=".csv,.xls,.xlsx"
+                onChange={(e) => setMediaFile(e.target.files?.[0] || null)}
+                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
+
+            <button
+              type="button"
+              disabled={!mediaFile}
+              onClick={handleImportMedia}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+            >
+              <Upload className="h-4 w-4" />
+              Import &amp; Upsert ke SQLite
+            </button>
+
+            {mediaMsg && (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 p-2.5 text-xs text-emerald-800">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>{mediaMsg}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                <Presentation className="h-5 w-5 text-orange-600" />
+                Upload Template Report PPTX ({clientId.toUpperCase()})
+              </h2>
+              <p className="text-xs text-slate-500">
+                Unggah file <code>.pptx</code> template klien untuk disimpan ke{" "}
+                <code>clients/{clientId}/template_daily.pptx</code> dan dipakai saat ekspor Output 2.
+              </p>
+            </div>
+
+            <div>
+              <input
+                type="file"
+                accept=".pptx"
+                onChange={(e) => setPptxFile(e.target.files?.[0] || null)}
+                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-orange-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-orange-700 hover:file:bg-orange-100"
+              />
+            </div>
+
+            <button
+              type="button"
+              disabled={!pptxFile}
+              onClick={handleUploadPptx}
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-40"
+            >
+              <Upload className="h-4 w-4" />
+              Upload Template PPTX
+            </button>
+
+            {pptxMsg && (
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 p-2.5 text-xs text-emerald-800">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>{pptxMsg}</span>
+              </div>
+            )}
+            {pptxErr && (
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 p-2.5 text-xs text-red-700">
+                <AlertCircle className="h-4 w-4" />
+                <span>{pptxErr}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

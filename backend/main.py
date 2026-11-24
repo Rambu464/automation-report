@@ -239,6 +239,39 @@ def create_app(
         save_client_config(config, clients_dir=cfg_settings.clients_dir)
         return {"status": "saved", "config": config.model_dump(mode="json")}
 
+    @app.post("/api/clients/{client_id}/template-pptx")
+    async def upload_client_pptx_template(
+        client_id: str,
+        file: UploadFile = File(...),
+    ) -> dict[str, Any]:
+        try:
+            cfg = load_client_config(client_id, clients_dir=cfg_settings.clients_dir)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        filename = (file.filename or "").lower()
+        if not filename.endswith(".pptx"):
+            raise HTTPException(status_code=400, detail="File template harus berformat .pptx.")
+
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="File template .pptx kosong.")
+
+        dest = Path(cfg_settings.clients_dir) / client_id / "template_daily.pptx"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(raw)
+
+        rel_path = f"clients/{client_id}/template_daily.pptx"
+        cfg.output_templates.pptx_template_path = rel_path
+        save_client_config(cfg, clients_dir=cfg_settings.clients_dir)
+
+        return {
+            "status": "uploaded",
+            "client_id": client_id,
+            "template_path": rel_path,
+            "size_bytes": len(raw),
+        }
+
     # --- 5. Media Master Import (CSV / XLSX) ---
     @app.post("/api/media-master/import")
     async def import_media_master(

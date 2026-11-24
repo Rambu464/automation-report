@@ -17,6 +17,7 @@ from pptx.util import Inches, Pt
 
 from src.ai_engine.schemas import Pass3NarrativeOutput
 from src.config_loader import ClientConfig
+from src.generators.pptx_template_updater import update_pptx_template_in_place
 
 NAVY = RGBColor(0x1F, 0x4E, 0x78)
 DARK_TEXT = RGBColor(0x22, 0x22, 0x22)
@@ -108,6 +109,11 @@ def generate_pptx_report(
     )
     if tpl is not None and tpl.exists():
         prs = Presentation(str(tpl))
+        if len(prs.slides) > 0:
+            update_report = update_pptx_template_in_place(prs, report_payload, narrative)
+            if update_report.updated_charts > 0 or update_report.updated_texts > 0:
+                prs.save(str(out))
+                return out
     else:
         prs = Presentation()
         prs.slide_width = Inches(13.333)

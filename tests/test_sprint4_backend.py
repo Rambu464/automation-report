@@ -163,7 +163,7 @@ def test_fastapi_full_workflow_upload_sse_qc_config_media_and_export(tmp_path: P
         by_id, _ = TakeoutRegistryRepo(db).get_by_client("bri")
         assert "API-002" in by_id
 
-        # 7. GET & PUT Client Config (add an Ad-Hoc column dynamically)
+        # 7. GET & PUT Client Config (add an Ad-Hoc column dynamically) + Upload PPTX Template
         cfg_data = client.get("/api/clients/bri/config").json()
         cfg_data["adhoc_columns"].append(
             {"name": "Sub_Program", "description": "Nama program khusus BRI"}
@@ -171,6 +171,23 @@ def test_fastapi_full_workflow_upload_sse_qc_config_media_and_export(tmp_path: P
         r_put = client.put("/api/clients/bri/config", json=cfg_data)
         assert r_put.status_code == 200
         assert any(c["name"] == "Sub_Program" for c in r_put.json()["config"]["adhoc_columns"])
+
+        from pptx import Presentation
+
+        pptx_buf = io.BytesIO()
+        Presentation().save(pptx_buf)
+        r_tpl = client.post(
+            "/api/clients/bri/template-pptx",
+            files={
+                "file": (
+                    "bri_template.pptx",
+                    pptx_buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                )
+            },
+        )
+        assert r_tpl.status_code == 200
+        assert (clients_dir / "bri" / "template_daily.pptx").exists()
 
         # 8. Export Triple Deliverables (with Column Picker) & Download
         r_exp = client.post(

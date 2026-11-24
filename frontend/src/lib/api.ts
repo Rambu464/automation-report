@@ -256,3 +256,20 @@ export async function importMediaMaster(
   if (!res.ok) throw new Error("Gagal mengimpor master media.");
   return res.json();
 }
+
+export async function uploadClientPptxTemplate(
+  clientId: string,
+  file: File
+): Promise<{ template_path: string; size_bytes: number }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/clients/${clientId}/template-pptx`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal mengunggah template PPTX." }));
+    throw new Error(err.detail || "Gagal mengunggah template PPTX.");
+  }
+  return res.json();
+}
