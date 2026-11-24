@@ -245,6 +245,13 @@ def test_auto_pivot_competitor_and_triple_deliverables(tmp_path: Path) -> None:
     assert any("SUM(" in f for f in formulas)
     assert not any("#REF!" in f for f in formulas)
 
+    # Verify cached formula values are present immediately (even in Excel Protected View)
+    wb_cached = openpyxl.load_workbook(excel_path, data_only=True)
+    ws_pivot_cached = wb_cached["Pivot"]
+    assert ws_pivot_cached["B3"].value == 3  # positive
+    assert ws_pivot_cached["B5"].value == 1  # negative
+    assert ws_pivot_cached["B6"].value == 4  # total
+
     # Test Column Picker (hide internal Flag_Cutoff_00)
     client_excel = generate_cleaned_excel(
         news_df=news_df,

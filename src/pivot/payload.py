@@ -51,6 +51,7 @@ def build_report_payload(
             "req_upload_matched": int(req_upload_matched),
         },
         "sentiment_summary": pivot_data["sentiment_summary"],
+        "tier1_sentiment_summary": pivot_data["tier1_sentiment_summary"],
         "media_breakdown": pivot_data["media_breakdown"],
         "pivots": pivot_data["pivots"],
         "adhoc_breakdowns": pivot_data["adhoc_breakdowns"],

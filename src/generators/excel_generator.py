@@ -181,9 +181,11 @@ def _write_dynamic_pivot_sheet(
     header_fmt: Any,
     cell_fmt: Any,
     num_fmt: Any,
+    pct_fmt: Any,
     total_fmt: Any,
+    total_pct_fmt: Any,
 ) -> None:
-    """Build `Pivot` sheet using live Excel formulas (`COUNTIF`, `COUNTIFS`, `SUM`) + Native Chart."""
+    """Build `Pivot` sheet with 8 dynamic-formula tables (`COUNTIF`, `COUNTIFS`, `COUNTBLANK`, `SUM`, `IFERROR`) & 6 Native Excel Charts."""
     ws = workbook.add_worksheet("Pivot")
     ws.set_column(0, 0, 42)
     ws.set_column(1, 1, 28)
@@ -199,6 +201,8 @@ def _write_dynamic_pivot_sheet(
 
     sent_rng = _rng("Sentiment")
     media_type_rng = _rng("Media Type")
+    media_name_rng = _rng("Media Name")
+    date_rng = _rng("Date")
     custom_tier_name = config.media_and_spokesperson.custom_tier.excel_column_name
     tier_rng = _rng(custom_tier_name) or _rng("Media Tier")
     nt_rng = _rng("Newstrends")
@@ -209,28 +213,35 @@ def _write_dynamic_pivot_sheet(
 
     row = 0
 
-    # --- Section 1: Sentiment Summary ---
+    # --- Section 1: Ringkasan Sentimen (+ Persentase %) ---
     ws.write(row, 0, "1. Ringkasan Sentimen", section_fmt)
     row += 1
-    ws.write(row, 0, "Sentiment", header_fmt)
-    ws.write(row, 1, "Jumlah Berita", header_fmt)
+    for c_i, h in enumerate(["Sentiment", "Jumlah Berita", "Persentase"]):
+        ws.write(row, c_i, h, header_fmt)
     sent_start_row = row + 1
     sentiments = ["positive", "neutral", "negative"]
+    sent_total = sum(int(report_payload["sentiment_summary"].get(s, 0)) for s in sentiments)
+    sent_total_excel_row = sent_start_row + len(sentiments) + 1
     for s in sentiments:
         row += 1
+        r_excel = row + 1
+        val = int(report_payload["sentiment_summary"].get(s, 0))
+        pct_val = (val / sent_total) if sent_total > 0 else 0.0
         ws.write_string(row, 0, s, cell_fmt)
         if sent_rng and clean_count > 0:
-            ws.write_formula(row, 1, f'=COUNTIF({sent_rng}, A{row + 1})', num_fmt)
+            ws.write_formula(row, 1, f'=COUNTIF({sent_rng}, A{r_excel})', num_fmt, val)
         else:
-            ws.write_number(row, 1, int(report_payload["sentiment_summary"].get(s, 0)), num_fmt)
+            ws.write_number(row, 1, val, num_fmt)
+        ws.write_formula(row, 2, f"=IFERROR(B{r_excel}/$B${sent_total_excel_row}, 0)", pct_fmt, pct_val)
     sent_end_row = row
     row += 1
     ws.write_string(row, 0, "Total", total_fmt)
-    ws.write_formula(row, 1, f"=SUM(B{sent_start_row + 1}:B{sent_end_row + 1})", total_fmt)
+    ws.write_formula(row, 1, f"=SUM(B{sent_start_row + 1}:B{sent_end_row + 1})", total_fmt, sent_total)
+    ws.write_formula(row, 2, f"=SUM(C{sent_start_row + 1}:C{sent_end_row + 1})", total_pct_fmt, 1.0 if sent_total > 0 else 0.0)
 
-    # Embed Native Excel Column Chart for Sentiment Summary
-    chart = workbook.add_chart({"type": "column"})
-    chart.add_series(
+    # Chart 1: Column Chart — Distribusi Sentimen
+    chart1 = workbook.add_chart({"type": "column"})
+    chart1.add_series(
         {
             "name": "Jumlah Berita",
             "categories": ["Pivot", sent_start_row, 0, sent_end_row, 0],
@@ -238,94 +249,239 @@ def _write_dynamic_pivot_sheet(
             "data_labels": {"value": True},
         }
     )
-    chart.set_title({"name": f"Distribusi Sentimen — {config.client_name}"})
-    chart.set_legend({"none": True})
-    ws.insert_chart("G2", chart, {"x_scale": 1.1, "y_scale": 1.0})
+    chart1.set_title({"name": f"1. Distribusi Sentimen — {config.client_name}"})
+    chart1.set_legend({"none": True})
+    ws.insert_chart("H2", chart1, {"x_scale": 1.15, "y_scale": 1.0})
 
-    # --- Section 2: Media Type Breakdown ---
+    # --- Section 2: Sentimen Khusus Tier 1 (+ Persentase %) ---
     row += 2
-    ws.write(row, 0, "2. Pivot Tipe Media", section_fmt)
+    tier_title = custom_tier_name if config.media_and_spokesperson.custom_tier.enabled else "Media Tier"
+    ws.write(row, 0, f"2. Sentimen Khusus {tier_title} = Tier 1", section_fmt)
+    row += 1
+    for c_i, h in enumerate(["Sentiment (Tier 1)", "Jumlah Berita", "Persentase"]):
+        ws.write(row, c_i, h, header_fmt)
+    t1_start_row = row + 1
+    t1_summary = report_payload.get("tier1_sentiment_summary") or {}
+    t1_total = sum(int(t1_summary.get(s, 0)) for s in sentiments)
+    t1_total_excel_row = t1_start_row + len(sentiments) + 1
+    for s in sentiments:
+        row += 1
+        r_excel = row + 1
+        val = int(t1_summary.get(s, 0))
+        pct_val = (val / t1_total) if t1_total > 0 else 0.0
+        ws.write_string(row, 0, s, cell_fmt)
+        if tier_rng and sent_rng and clean_count > 0:
+            ws.write_formula(row, 1, f'=COUNTIFS({tier_rng}, "Tier 1", {sent_rng}, A{r_excel})', num_fmt, val)
+        else:
+            ws.write_number(row, 1, val, num_fmt)
+        ws.write_formula(row, 2, f"=IFERROR(B{r_excel}/$B${t1_total_excel_row}, 0)", pct_fmt, pct_val)
+    t1_end_row = row
+    row += 1
+    ws.write_string(row, 0, "Total Tier 1", total_fmt)
+    ws.write_formula(row, 1, f"=SUM(B{t1_start_row + 1}:B{t1_end_row + 1})", total_fmt, t1_total)
+    ws.write_formula(row, 2, f"=SUM(C{t1_start_row + 1}:C{t1_end_row + 1})", total_pct_fmt, 1.0 if t1_total > 0 else 0.0)
+
+    # Chart 2: Pie Chart — Sentimen Tier 1
+    chart2 = workbook.add_chart({"type": "pie"})
+    chart2.add_series(
+        {
+            "name": "Sentimen Tier 1",
+            "categories": ["Pivot", t1_start_row, 0, t1_end_row, 0],
+            "values": ["Pivot", t1_start_row, 1, t1_end_row, 1],
+            "data_labels": {"percentage": True, "value": True},
+        }
+    )
+    chart2.set_title({"name": f"2. Sentimen Khusus {tier_title} (Tier 1)"})
+    ws.insert_chart("H18", chart2, {"x_scale": 1.15, "y_scale": 1.0})
+
+    # --- Section 3: Pivot Tipe Media ---
+    row += 2
+    ws.write(row, 0, "3. Pivot Tipe Media", section_fmt)
     row += 1
     ws.write(row, 0, "Media Type", header_fmt)
     ws.write(row, 1, "Jumlah Berita", header_fmt)
     mt_start = row + 1
     media_types = list(report_payload["media_breakdown"]["by_type"].keys()) or ["online"]
+    mt_total = 0
     for mt in media_types:
         row += 1
+        val = int(report_payload["media_breakdown"]["by_type"].get(mt, 0))
+        mt_total += val
         ws.write_string(row, 0, mt, cell_fmt)
         if media_type_rng and clean_count > 0:
-            ws.write_formula(row, 1, f'=COUNTIF({media_type_rng}, A{row + 1})', num_fmt)
+            ws.write_formula(row, 1, f'=COUNTIF({media_type_rng}, A{row + 1})', num_fmt, val)
         else:
-            ws.write_number(row, 1, int(report_payload["media_breakdown"]["by_type"].get(mt, 0)), num_fmt)
+            ws.write_number(row, 1, val, num_fmt)
     mt_end = row
     row += 1
     ws.write_string(row, 0, "Total", total_fmt)
-    ws.write_formula(row, 1, f"=SUM(B{mt_start + 1}:B{mt_end + 1})", total_fmt)
+    ws.write_formula(row, 1, f"=SUM(B{mt_start + 1}:B{mt_end + 1})", total_fmt, mt_total)
 
-    # --- Section 3: Custom Media Tier Breakdown ---
+    # Chart 3: Doughnut Chart — Tipe Media
+    chart3 = workbook.add_chart({"type": "doughnut"})
+    chart3.add_series(
+        {
+            "name": "Tipe Media",
+            "categories": ["Pivot", mt_start, 0, mt_end, 0],
+            "values": ["Pivot", mt_start, 1, mt_end, 1],
+            "data_labels": {"percentage": True, "value": True},
+        }
+    )
+    chart3.set_title({"name": "3. Distribusi Tipe Media"})
+    ws.insert_chart("H34", chart3, {"x_scale": 1.15, "y_scale": 1.0})
+
+    # --- Section 4: Pivot Custom Media Tier ---
     row += 2
-    tier_title = custom_tier_name if config.media_and_spokesperson.custom_tier.enabled else "Media Tier"
-    ws.write(row, 0, f"3. Pivot {tier_title}", section_fmt)
+    ws.write(row, 0, f"4. Pivot {tier_title}", section_fmt)
     row += 1
     ws.write(row, 0, tier_title, header_fmt)
     ws.write(row, 1, "Jumlah Berita", header_fmt)
     t_start = row + 1
     tiers = list(report_payload["media_breakdown"]["by_custom_tier"].keys()) or ["Tier 1", "Tier 2", "Tier 3"]
+    t_total = 0
     for t_label in tiers:
         row += 1
+        val = int(report_payload["media_breakdown"]["by_custom_tier"].get(t_label, 0))
+        t_total += val
         ws.write_string(row, 0, t_label, cell_fmt)
         if tier_rng and clean_count > 0:
-            ws.write_formula(row, 1, f'=COUNTIF({tier_rng}, A{row + 1})', num_fmt)
+            if t_label == "Unassigned":
+                ws.write_formula(row, 1, f'=COUNTBLANK({tier_rng})', num_fmt, val)
+            else:
+                ws.write_formula(row, 1, f'=COUNTIF({tier_rng}, A{row + 1})', num_fmt, val)
         else:
-            ws.write_number(
-                row, 1, int(report_payload["media_breakdown"]["by_custom_tier"].get(t_label, 0)), num_fmt
-            )
+            ws.write_number(row, 1, val, num_fmt)
     t_end = row
     row += 1
     ws.write_string(row, 0, "Total", total_fmt)
-    ws.write_formula(row, 1, f"=SUM(B{t_start + 1}:B{t_end + 1})", total_fmt)
+    ws.write_formula(row, 1, f"=SUM(B{t_start + 1}:B{t_end + 1})", total_fmt, t_total)
 
-    # --- Section 4: Pivot Newstrends & Nama_Isu vs Sentimen ---
+    # Chart 4: Column Chart — Custom Media Tier
+    chart4 = workbook.add_chart({"type": "column"})
+    chart4.add_series(
+        {
+            "name": tier_title,
+            "categories": ["Pivot", t_start, 0, t_end, 0],
+            "values": ["Pivot", t_start, 1, t_end, 1],
+            "data_labels": {"value": True},
+        }
+    )
+    chart4.set_title({"name": f"4. Distribusi {tier_title}"})
+    chart4.set_legend({"none": True})
+    ws.insert_chart("H50", chart4, {"x_scale": 1.15, "y_scale": 1.0})
+
+    # --- Section 5: Pivot Timeline Harian vs Sentimen ---
     row += 2
-    ws.write(row, 0, "4. Pivot Newstrends & Nama Isu vs Sentimen", section_fmt)
+    ws.write(row, 0, "5. Pivot Timeline Pemberitaan Harian", section_fmt)
+    row += 1
+    for c_i, h in enumerate(["Tanggal", "Positive", "Neutral", "Negative", "Total"]):
+        ws.write(row, c_i, h, header_fmt)
+    tl_start = row + 1
+    timeline_rows = report_payload["pivots"].get("timeline_daily") or []
+    tl_pos_s = tl_neu_s = tl_neg_s = 0
+    for item in timeline_rows:
+        row += 1
+        r_excel = row + 1
+        p_v = int(item.get("pos", 0))
+        u_v = int(item.get("neu", 0))
+        n_v = int(item.get("neg", 0))
+        tot_v = int(item.get("total", p_v + u_v + n_v))
+        tl_pos_s += p_v
+        tl_neu_s += u_v
+        tl_neg_s += n_v
+        ws.write_string(row, 0, str(item["date"]), cell_fmt)
+        if date_rng and sent_rng and clean_count > 0:
+            ws.write_formula(row, 1, f'=COUNTIFS({date_rng}, A{r_excel}, {sent_rng}, "positive")', num_fmt, p_v)
+            ws.write_formula(row, 2, f'=COUNTIFS({date_rng}, A{r_excel}, {sent_rng}, "neutral")', num_fmt, u_v)
+            ws.write_formula(row, 3, f'=COUNTIFS({date_rng}, A{r_excel}, {sent_rng}, "negative")', num_fmt, n_v)
+        else:
+            ws.write_number(row, 1, p_v, num_fmt)
+            ws.write_number(row, 2, u_v, num_fmt)
+            ws.write_number(row, 3, n_v, num_fmt)
+        ws.write_formula(row, 4, f"=SUM(B{r_excel}:D{r_excel})", num_fmt, tot_v)
+    if timeline_rows:
+        tl_end = row
+        row += 1
+        ws.write_string(row, 0, "Total", total_fmt)
+        for c_i, col_l, c_sum in [
+            (1, "B", tl_pos_s),
+            (2, "C", tl_neu_s),
+            (3, "D", tl_neg_s),
+            (4, "E", tl_pos_s + tl_neu_s + tl_neg_s),
+        ]:
+            ws.write_formula(row, c_i, f"=SUM({col_l}{tl_start + 1}:{col_l}{tl_end + 1})", total_fmt, c_sum)
+
+        # Chart 5: Line Chart — Tren Pemberitaan Harian
+        chart5 = workbook.add_chart({"type": "line"})
+        chart5.add_series(
+            {
+                "name": "Total Berita",
+                "categories": ["Pivot", tl_start, 0, tl_end, 0],
+                "values": ["Pivot", tl_start, 4, tl_end, 4],
+                "data_labels": {"value": True},
+                "marker": {"type": "circle", "size": 6},
+            }
+        )
+        chart5.set_title({"name": "5. Tren Pemberitaan Harian"})
+        ws.insert_chart("H66", chart5, {"x_scale": 1.15, "y_scale": 1.0})
+
+    # --- Section 6: Pivot Newstrends & Nama_Isu vs Sentimen ---
+    row += 2
+    ws.write(row, 0, "6. Pivot Newstrends & Nama Isu vs Sentimen", section_fmt)
     row += 1
     for c_i, h in enumerate(["Newstrends", "Nama_Isu", "Positive", "Neutral", "Negative", "Total"]):
         ws.write(row, c_i, h, header_fmt)
     nt_start = row + 1
     top_nt = report_payload["pivots"]["top_newstrends"]
+    nt_pos_sum = nt_neu_sum = nt_neg_sum = 0
     for item in top_nt:
         row += 1
         r_excel = row + 1
+        pos_v = int(item["pos"])
+        neu_v = int(item["neu"])
+        neg_v = int(item["neg"])
+        tot_v = pos_v + neu_v + neg_v
+        nt_pos_sum += pos_v
+        nt_neu_sum += neu_v
+        nt_neg_sum += neg_v
         ws.write_string(row, 0, item["newstrend"], cell_fmt)
         ws.write_string(row, 1, item["nama_isu"], cell_fmt)
         if nt_rng and isu_rng and sent_rng and clean_count > 0:
-            ws.write_formula(row, 2, f'=COUNTIFS({nt_rng}, A{r_excel}, {isu_rng}, B{r_excel}, {sent_rng}, "positive")', num_fmt)
-            ws.write_formula(row, 3, f'=COUNTIFS({nt_rng}, A{r_excel}, {isu_rng}, B{r_excel}, {sent_rng}, "neutral")', num_fmt)
-            ws.write_formula(row, 4, f'=COUNTIFS({nt_rng}, A{r_excel}, {isu_rng}, B{r_excel}, {sent_rng}, "negative")', num_fmt)
+            ws.write_formula(row, 2, f'=COUNTIFS({nt_rng}, A{r_excel}, {isu_rng}, B{r_excel}, {sent_rng}, "positive")', num_fmt, pos_v)
+            ws.write_formula(row, 3, f'=COUNTIFS({nt_rng}, A{r_excel}, {isu_rng}, B{r_excel}, {sent_rng}, "neutral")', num_fmt, neu_v)
+            ws.write_formula(row, 4, f'=COUNTIFS({nt_rng}, A{r_excel}, {isu_rng}, B{r_excel}, {sent_rng}, "negative")', num_fmt, neg_v)
         else:
-            ws.write_number(row, 2, int(item["pos"]), num_fmt)
-            ws.write_number(row, 3, int(item["neu"]), num_fmt)
-            ws.write_number(row, 4, int(item["neg"]), num_fmt)
-        ws.write_formula(row, 5, f"=SUM(C{r_excel}:E{r_excel})", num_fmt)
+            ws.write_number(row, 2, pos_v, num_fmt)
+            ws.write_number(row, 3, neu_v, num_fmt)
+            ws.write_number(row, 4, neg_v, num_fmt)
+        ws.write_formula(row, 5, f"=SUM(C{r_excel}:E{r_excel})", num_fmt, tot_v)
     if top_nt:
         nt_end = row
         row += 1
         ws.write_string(row, 0, "Total", total_fmt)
         ws.write_string(row, 1, "", total_fmt)
-        for c_i, col_l in [(2, "C"), (3, "D"), (4, "E"), (5, "F")]:
-            ws.write_formula(row, c_i, f"=SUM({col_l}{nt_start + 1}:{col_l}{nt_end + 1})", total_fmt)
+        for c_i, col_l, cached_sum in [
+            (2, "C", nt_pos_sum),
+            (3, "D", nt_neu_sum),
+            (4, "E", nt_neg_sum),
+            (5, "F", nt_pos_sum + nt_neu_sum + nt_neg_sum),
+        ]:
+            ws.write_formula(row, c_i, f"=SUM({col_l}{nt_start + 1}:{col_l}{nt_end + 1})", total_fmt, cached_sum)
 
-    # --- Section 5: Pivot Spokesperson & Jabatan (Khusus Berita Rilis) ---
+    # --- Section 7: Pivot Spokesperson & Jabatan (Khusus Berita Rilis) ---
     row += 2
-    ws.write(row, 0, "5. Pivot Spokesperson & Jabatan (Khusus Berita Rilis)", section_fmt)
+    ws.write(row, 0, "7. Pivot Spokesperson & Jabatan (Khusus Berita Rilis)", section_fmt)
     row += 1
     for c_i, h in enumerate(["Spokesperson", "Jabatan", "Jumlah Rilis"]):
         ws.write(row, c_i, h, header_fmt)
     spk_start = row + 1
     spk_rows = report_payload["pivots"]["spokesperson_rilis"]
+    spk_total = 0
     for item in spk_rows:
         row += 1
         r_excel = row + 1
+        cnt_v = int(item["count"])
+        spk_total += cnt_v
         ws.write_string(row, 0, str(item["spokesperson"]), cell_fmt)
         ws.write_string(row, 1, str(item["jabatan"]), cell_fmt)
         if ctype_rng and spk_rng and jab_rng and clean_count > 0:
@@ -334,15 +490,56 @@ def _write_dynamic_pivot_sheet(
                 2,
                 f'=COUNTIFS({ctype_rng}, "Rilis", {spk_rng}, A{r_excel}, {jab_rng}, B{r_excel})',
                 num_fmt,
+                cnt_v,
             )
         else:
-            ws.write_number(row, 2, int(item["count"]), num_fmt)
+            ws.write_number(row, 2, cnt_v, num_fmt)
     if spk_rows:
         spk_end = row
         row += 1
         ws.write_string(row, 0, "Total Rilis", total_fmt)
         ws.write_string(row, 1, "", total_fmt)
-        ws.write_formula(row, 2, f"=SUM(C{spk_start + 1}:C{spk_end + 1})", total_fmt)
+        ws.write_formula(row, 2, f"=SUM(C{spk_start + 1}:C{spk_end + 1})", total_fmt, spk_total)
+
+    # --- Section 8: Pivot Top Media Name ---
+    row += 2
+    ws.write(row, 0, "8. Pivot Top Media (Media Name)", section_fmt)
+    row += 1
+    ws.write(row, 0, "Media Name", header_fmt)
+    ws.write(row, 1, "Jumlah Berita", header_fmt)
+    tm_start = row + 1
+    top_media_rows = (report_payload["pivots"].get("top_media") or [])[:30]
+    tm_total = 0
+    for item in top_media_rows:
+        row += 1
+        r_excel = row + 1
+        cnt_v = int(item["count"])
+        tm_total += cnt_v
+        ws.write_string(row, 0, str(item["media_name"]), cell_fmt)
+        if media_name_rng and clean_count > 0:
+            ws.write_formula(row, 1, f'=COUNTIF({media_name_rng}, A{r_excel})', num_fmt, cnt_v)
+        else:
+            ws.write_number(row, 1, cnt_v, num_fmt)
+    if top_media_rows:
+        tm_end = row
+        row += 1
+        ws.write_string(row, 0, "Total Top Media", total_fmt)
+        ws.write_formula(row, 1, f"=SUM(B{tm_start + 1}:B{tm_end + 1})", total_fmt, tm_total)
+
+        # Chart 6: Horizontal Bar Chart — Top 10 Media
+        top10_end = min(tm_end, tm_start + 9)
+        chart6 = workbook.add_chart({"type": "bar"})
+        chart6.add_series(
+            {
+                "name": "Jumlah Berita",
+                "categories": ["Pivot", tm_start, 0, top10_end, 0],
+                "values": ["Pivot", tm_start, 1, top10_end, 1],
+                "data_labels": {"value": True},
+            }
+        )
+        chart6.set_title({"name": "6. Top 10 Media Teraktif"})
+        chart6.set_legend({"none": True})
+        ws.insert_chart("H82", chart6, {"x_scale": 1.15, "y_scale": 1.15})
 
 
 def _inject_into_excel_template(
@@ -422,7 +619,9 @@ def generate_cleaned_excel(
     text_fmt = workbook.add_format({"valign": "top", "border": 1})
     url_fmt = workbook.add_format({"font_color": "#0563C1", "underline": 1, "border": 1})
     num_fmt = workbook.add_format({"num_format": "#,##0", "border": 1})
+    pct_fmt = workbook.add_format({"num_format": "0.0%", "border": 1})
     total_fmt = workbook.add_format({"bold": True, "bg_color": "#D9E1F2", "num_format": "#,##0", "border": 1})
+    total_pct_fmt = workbook.add_format({"bold": True, "bg_color": "#D9E1F2", "num_format": "0.0%", "border": 1})
     yellow_fmt = workbook.add_format({"bg_color": "#FFF2CC", "font_color": "#7F6000", "bold": True})
     green_fmt = workbook.add_format({"bg_color": "#E2EFDA", "font_color": "#375623"})
     red_fmt = workbook.add_format({"bg_color": "#FCE4D6", "font_color": "#C00000"})
@@ -460,7 +659,9 @@ def generate_cleaned_excel(
         header_fmt=header_fmt,
         cell_fmt=text_fmt,
         num_fmt=num_fmt,
+        pct_fmt=pct_fmt,
         total_fmt=total_fmt,
+        total_pct_fmt=total_pct_fmt,
     )
 
     workbook.close()

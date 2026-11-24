@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import pandas as pd
 
@@ -11,10 +12,24 @@ from src.config_loader import ClientConfig
 from src.db.repositories import MediaMasterRecord, MediaMasterRepo
 
 
+def normalize_tier_label(raw_val: object) -> str:
+    """Normalize numeric/float tiers (`1.0`, `2`, `tier1`) into canonical `'Tier 1'` / `'Tier 2'` / `'Tier 3'`."""
+    if raw_val is None or (isinstance(raw_val, float) and pd.isna(raw_val)):
+        return ""
+    text = str(raw_val).strip()
+    if not text or text.lower() in {"nan", "none", "-", "0", "0.0"}:
+        return ""
+    m = re.match(r"^(?:tier\s*)?([1-9])(?:\.0+)?$", text, re.IGNORECASE)
+    if m:
+        return f"Tier {m.group(1)}"
+    return text
+
+
 def import_media_master_file(
     file_path: Path | str,
     repo: MediaMasterRepo,
     custom_tier_client_key: str | None = None,
+    sheet_name: str | None = None,
 ) -> int:
     """Import or update media master entries from `.xlsx` or `.csv` into SQLite `media_master_hypestat`."""
     path = Path(file_path)
@@ -24,13 +39,23 @@ def import_media_master_file(
     if path.suffix.lower() == ".csv":
         df = pd.read_csv(path)
     else:
-        df = pd.read_excel(path, engine="calamine")
+        with pd.ExcelFile(path, engine="calamine") as xf:
+            target_sheet = sheet_name
+            if target_sheet is None:
+                # Auto-detect `Tier-*` or `Media Master` sheet if multi-sheet workbook
+                for sname in xf.sheet_names:
+                    if sname.strip().lower().startswith("tier-") or "media" in sname.strip().lower():
+                        target_sheet = sname
+                        break
+                if target_sheet is None:
+                    target_sheet = xf.sheet_names[0]
+            df = pd.read_excel(xf, sheet_name=target_sheet)
 
     col_map = {str(c).strip().lower(): c for c in df.columns}
 
     def _pick(*candidates: str) -> str | None:
         for cand in candidates:
-            if cand in col_map:
+            if cand and cand in col_map:
                 return col_map[cand]
         return None
 
@@ -42,26 +67,28 @@ def import_media_master_file(
         "custom_tier",
         "custom tier",
         f"tier {custom_tier_client_key.lower()}" if custom_tier_client_key else "",
+        f"tier-{custom_tier_client_key.lower()}" if custom_tier_client_key else "",
     )
-    detail_col = _pick("media_type_detail", "media type detail", "kategori media", "type detail")
+    detail_col = _pick("media_type_detail", "media type detail", "tipe media 2", "kategori media", "type detail")
     visitor_col = _pick("hypestat_daily_visitor", "daily visitor", "hypestat", "visitor")
-    value_col = _pick("media_value", "media value", "valuasi")
+    value_col = _pick("media_value", "media value", "pr value", "valuasi")
 
     if domain_col is None and name_col is None:
         raise ValueError("File master media wajib memiliki minimal kolom 'domain' atau 'media_name'.")
 
-    records: list[MediaMasterRecord] = []
+    records_by_key: dict[str, MediaMasterRecord] = {}
     for _, row in df.iterrows():
         raw_domain = str(row[domain_col]).strip() if domain_col and pd.notna(row[domain_col]) else ""
-        domain = extract_domain(raw_domain)
+        media_name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ""
+        domain = extract_domain(raw_domain) if raw_domain else ""
+        if not domain and media_name:
+            # Support `Tier-BNI` where `nama media` holds either domain (`detik.com`) or Print/TV name (`Bali TV`)
+            domain = extract_domain(media_name) if "." in media_name and " " not in media_name else media_name.lower()
         if not domain:
             continue
 
-        media_name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ""
-        tier_bino = (
-            str(row[tier_bino_col]).strip()
-            if tier_bino_col and pd.notna(row[tier_bino_col])
-            else ""
+        tier_bino = normalize_tier_label(
+            row[tier_bino_col] if tier_bino_col and pd.notna(row[tier_bino_col]) else ""
         )
         detail = (
             str(row[detail_col]).strip()
@@ -71,7 +98,7 @@ def import_media_master_file(
 
         custom_tiers: dict[str, str] = {}
         if custom_tier_client_key and custom_tier_col and pd.notna(row[custom_tier_col]):
-            val = str(row[custom_tier_col]).strip()
+            val = normalize_tier_label(row[custom_tier_col])
             if val:
                 custom_tiers[custom_tier_client_key.lower()] = val
 
@@ -89,19 +116,17 @@ def import_media_master_file(
             except ValueError:
                 media_val = 0
 
-        records.append(
-            MediaMasterRecord(
-                domain=domain,
-                media_name=media_name,
-                tier_bino=tier_bino,
-                client_custom_tiers=custom_tiers,
-                media_type_detail=detail or "Organik",
-                hypestat_daily_visitor=visitor,
-                media_value=media_val,
-            )
+        records_by_key[domain] = MediaMasterRecord(
+            domain=domain,
+            media_name=media_name,
+            tier_bino=tier_bino,
+            client_custom_tiers=custom_tiers,
+            media_type_detail=detail or "Organik",
+            hypestat_daily_visitor=visitor,
+            media_value=media_val,
         )
 
-    return repo.upsert_many(records, merge_custom_tiers=True)
+    return repo.upsert_many(list(records_by_key.values()), merge_custom_tiers=True)
 
 
 def enrich_media_attributes(
@@ -126,6 +151,7 @@ def enrich_media_attributes(
     statuses = df["Status_Takeout"].tolist()
     reasons = df["Alasan_Spam"].tolist()
     urls = df["Page/URL"].fillna("").astype(str).tolist()
+    media_names = df["Media Name"].fillna("").astype(str).tolist()
     existing_tiers = df["Media Tier"].fillna("").astype(str).tolist()
     existing_details = df["Media Type Detail"].fillna("").astype(str).tolist()
     existing_visitors = df["Oplah/Daily Visitor"].tolist()
@@ -133,16 +159,18 @@ def enrich_media_attributes(
     for idx in range(len(df)):
         domain = extract_domain(urls[idx])
         domains.append(domain)
-        rec = media_map.get(domain)
+        mname_key = media_names[idx].strip().lower()
+        rec = media_map.get(domain) or (media_map.get(mname_key) if mname_key else None)
 
         # Tier Bino
-        tier_bino = (rec.tier_bino if rec and rec.tier_bino else existing_tiers[idx]).strip()
+        raw_tier_bino = (rec.tier_bino if rec and rec.tier_bino else existing_tiers[idx]).strip()
+        tier_bino = normalize_tier_label(raw_tier_bino)
         tier_bino_list.append(tier_bino)
 
         # Client Custom Tier (e.g. TIER BRI / TIER BNI)
         custom_tier = ""
         if rec and custom_key in rec.client_custom_tiers:
-            custom_tier = rec.client_custom_tiers[custom_key]
+            custom_tier = normalize_tier_label(rec.client_custom_tiers[custom_key])
         elif custom_tier_cfg.fallback_to_bino_tier:
             custom_tier = tier_bino
         custom_tier_list.append(custom_tier)

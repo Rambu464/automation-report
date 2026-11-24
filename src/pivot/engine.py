@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.cleaning.media_lookup import normalize_tier_label
 from src.config_loader import ClientConfig
 
 
@@ -25,11 +26,13 @@ def compute_pivots(news_df: pd.DataFrame, config: ClientConfig) -> dict[str, Any
     if keep_df.empty:
         return {
             "sentiment_summary": {"positive": 0, "neutral": 0, "negative": 0},
+            "tier1_sentiment_summary": {"positive": 0, "neutral": 0, "negative": 0},
             "media_breakdown": {"by_type": {}, "by_custom_tier": {}, "by_detail": {}},
             "pivots": {
                 "top_newstrends": [],
                 "spokesperson_rilis": [],
                 "timeline_daily": [],
+                "top_media": [],
             },
             "adhoc_breakdowns": {},
         }
@@ -56,12 +59,21 @@ def compute_pivots(news_df: pd.DataFrame, config: ClientConfig) -> dict[str, Any
         if config.media_and_spokesperson.custom_tier.enabled and custom_tier_col in keep_df.columns
         else "Media Tier"
     )
-    tier_series = (
-        keep_df[tier_col].fillna("").astype(str).str.strip().replace("", "Unassigned")
-        if tier_col in keep_df.columns
-        else pd.Series(["Unassigned"] * len(keep_df))
-    )
+    if tier_col in keep_df.columns:
+        tier_series = keep_df[tier_col].map(normalize_tier_label).replace("", "Unassigned")
+    else:
+        tier_series = pd.Series(["Unassigned"] * len(keep_df), index=keep_df.index)
+    keep_df["_tier_norm"] = tier_series
     by_custom_tier = {str(k): int(v) for k, v in tier_series.value_counts().items()}
+
+    # Tier 1 Sentiment Summary
+    t1_df = keep_df[keep_df["_tier_norm"] == "Tier 1"]
+    t1_counts = t1_df["_sent"].value_counts().to_dict() if not t1_df.empty else {}
+    tier1_sentiment_summary = {
+        "positive": int(t1_counts.get("positive", 0)),
+        "neutral": int(t1_counts.get("neutral", 0)),
+        "negative": int(t1_counts.get("negative", 0)),
+    }
 
     detail_series = (
         keep_df["Media Type Detail"].fillna("").astype(str).str.strip().replace("", "Organik")
@@ -144,6 +156,17 @@ def compute_pivots(news_df: pd.DataFrame, config: ClientConfig) -> dict[str, Any
         )
     timeline_daily.sort(key=lambda x: x["date"])
 
+    # 5b. Top Media Name Breakdown
+    media_name_series = (
+        keep_df["Media Name"].fillna("").astype(str).str.strip().replace("", "Unknown")
+        if "Media Name" in keep_df.columns
+        else pd.Series(["Unknown"] * len(keep_df))
+    )
+    top_media = [
+        {"media_name": str(name), "count": int(cnt)}
+        for name, cnt in media_name_series.value_counts().items()
+    ]
+
     # 6. Ad-hoc column breakdowns
     adhoc_breakdowns: dict[str, dict[str, int]] = {}
     for col_cfg in config.adhoc_columns:
@@ -160,6 +183,7 @@ def compute_pivots(news_df: pd.DataFrame, config: ClientConfig) -> dict[str, Any
 
     return {
         "sentiment_summary": sentiment_summary,
+        "tier1_sentiment_summary": tier1_sentiment_summary,
         "media_breakdown": {
             "by_type": by_type,
             "by_custom_tier": by_custom_tier,
@@ -169,6 +193,7 @@ def compute_pivots(news_df: pd.DataFrame, config: ClientConfig) -> dict[str, Any
             "top_newstrends": top_newstrends,
             "spokesperson_rilis": spokesperson_rilis,
             "timeline_daily": timeline_daily,
+            "top_media": top_media,
         },
         "adhoc_breakdowns": adhoc_breakdowns,
     }
