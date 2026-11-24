@@ -354,14 +354,16 @@ Newstensity/
 ```
 
 ### B. Daftar Endpoint Utama FastAPI (`backend/`)
-1. `POST /api/upload` — Menerima file `.xls with Statements`, pilihan profil klien (`bri`, dll.), parameter **`cutoff_datetime`** (misal `2026-11-19T15:00:00+07:00`), serta input opsional daftar URL **`req_upload`** dan **`takedown`** (file atau teks); mengembalikan `job_id`.
-2. `GET /api/process/{job_id}/stream` (**Server-Sent Events / SSE**) — Mengirim progres pemrosesan per tahap & per *batch* secara *real-time* ke browser (*"Pass 1: Batch 4/15 selesai — Estimasi 40 detik"*).
-3. `GET /api/qc/{job_id}` & `PATCH /api/qc/{job_id}` — Mengambil dan menyimpan hasil koreksi manual analis di tabel QC (*toggle* `Takeout`/`Keep`, edit `Alasan_Spam`, edit `Sentiment`/`Newstrends`/`Spokesperson`, sekaligus *sync* ke SQLite `takeout_registry` & regenerasi `report_payload.json`).
-4. `GET /api/clients/{client_id}/config` & `PUT /api/clients/{client_id}/config` — Membaca & memperbarui aturan klien beserta penambahan **Kolom Ad-Hoc** (`Kluster`, `Paid_Earned`) melalui formulir UI.
-5. `POST /api/media-master/import` — Mengimpor/memperbarui daftar master media (`tier_bino`, *Custom Tier* klien seperti `TIER BNI`, *Hypestat*, *Newswire/Media Bazar*) dari file `.xlsx`/`.csv` ke SQLite `media_master_hypestat`.
-6. `POST /api/export/{job_id}` — Menghasilkan dan menyediakan tautan unduh/salin untuk **3 Output Utama**: (1) Excel *Raw Data Cleaned & Pivot* (`.xlsx` sesuai pilihan *Column Picker*), (2) Report Visual (`.pptx` / `.pdf`), dan (3) Teks ***Wording*** (`.txt` + tombol *Copy-to-Clipboard* di Next.js).
+1. `GET /api/projects`, `POST /api/projects`, `DELETE /api/projects/{project_id}` — Manajemen **Project / Kasus** persisten di SQLite (1 kasus = 1 project; menyimpan relasi ke `latest_job_id`, klien, *cutoff*, dan ringkasan angka sehingga tetap utuh meski server di-*restart*).
+2. `POST /api/upload` — Menerima file `.xls with Statements`, `project_id`, pilihan profil klien (`bni`, `bri`, dll.), parameter **`cutoff_datetime`** (misal `2026-11-19T15:00:00+07:00`), serta input opsional daftar URL **`req_upload`** dan **`takedown`**; mengembalikan `job_id`.
+3. `GET /api/process/{job_id}/stream` (**Server-Sent Events / SSE**) — Mengirim progres pemrosesan per tahap & per *batch* secara *real-time* ke browser (*"Pass 1: Batch 4/15 selesai — Estimasi 40 detik"*).
+4. `GET /api/qc/{job_id}` & `PATCH /api/qc/{job_id}` — Mengambil dan menyimpan hasil koreksi manual analis di tabel QC (*toggle* `Takeout`/`Keep`, edit `Alasan_Spam`, edit `Sentiment`/`Newstrends`/`Spokesperson`, sekaligus *sync* ke SQLite `takeout_registry` & regenerasi `report_payload.json`).
+5. `GET /api/clients`, `POST /api/clients`, `GET/PUT /api/clients/{client_id}/config`, & `POST /api/clients/{client_id}/template-pptx` — Manajemen profil klien, penambahan **Kolom Ad-Hoc** (`Kluster`, `Paid_Earned`), dan unggah template `.pptx` melalui UI.
+6. `POST /api/media-master/import` — Mengimpor/memperbarui daftar master media (`tier_bino`, *Custom Tier* klien seperti `TIER BNI`, *Hypestat*, *Newswire/Media Bazar*) dari file `.xlsx`/`.csv` ke SQLite `media_master_hypestat`.
+7. `POST /api/export/{job_id}` — Menghasilkan dan menyediakan tautan unduh/salin untuk **3 Output Utama**: (1) Excel *Raw Data Cleaned & Pivot* (`.xlsx` sesuai pilihan *Column Picker*), (2) Report Visual (`.pptx` *smart in-place template update* / `.pdf`), dan (3) Teks ***Wording*** (`.txt` + tombol *Copy-to-Clipboard* di Next.js).
 
-### C. Fitur Utama Antarmuka Analis di Next.js (`frontend/`)
+### C. Fitur & Layout Utama Antarmuka Analis di Next.js (`frontend/`)
+- **Project-Centric Workspace Layout (Tanpa Panel Chat Kanan):** Mengusung antarmuka *light SaaS* bersih dengan **Icon Rail** kiri tipis, **Left Project Panel** (daftar kasus tersimpan + tombol `+ New Project`), **Top Breadcrumb Switcher** (`Projects / Nama Kasus ⌄`), dan **Kanvas Utama Full-Width** (berlatar *dot-grid* halus) berisi tab `Pipeline & Upload`, `Tabel QC Interaktif`, `Ekspor 3 Output`, serta halaman pengaturan klien/master media/template.
 - **Interactive Spreadsheet QC (`AG Grid Community` / `@tanstack/react-table`):** Tabel mirip Excel di browser dengan **4 tab filter cepat**:
   1. **Tab *"Perlu Dicek (`00:00`)"*** (`Flag_Cutoff_00`) untuk verifikasi batas *cutoff* harian.
   2. **Tab *"Takeout & Alasan Spam"*** untuk meninjau alasan *takeout*/*takedown* atau memulihkan baris yang keliru ditandai.

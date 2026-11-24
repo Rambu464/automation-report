@@ -102,6 +102,13 @@
 
 ## Changelog / Log Implementasi
 
+### 2026-11-24 — Iterasi UI/UX: Project-Centric Workspace & Smart PPTX Updater
+- **Ringkasan:** Mengubah arsitektur Web UI menjadi **Project-Centric (1 Kasus = 1 Project persisten)** bergaya *light SaaS* (tanpa panel chat kanan) + fitur *Smart PPTX Template Element Auto-Recognition*.
+- **Perubahan Utama:**
+  - `src/db/database.py`, `src/db/repositories.py`, `backend/jobs.py`, & `backend/main.py`: Tabel SQLite `projects`, endpoint `GET/POST/DELETE /api/projects`, relasi `project_id` pada `/api/upload`, serta *disk rehydration* agar project lama tetap bisa dibuka & di-QC meski backend di-restart.
+  - `frontend/`: Redesign penuh bergaya *AutomiQ* (Top Bar, Breadcrumb Project Switcher, Far-Left Icon Rail, Left Project Panel + `NewProjectModal`, dan kanvas *dot-grid* full-width tanpa panel chat kanan).
+  - `src/generators/pptx_template_updater.py`: Pengenalan & pembaruan otomatis grafik/teks *in-place* pada template `.pptx` klien (termasuk melepas tautan eksternal Google Sheets).
+
 ### 2026-11-24 — Sprint 4 Selesai (Phase 3 Core Development Complete ✅)
 - **Ringkasan:** Menyelesaikan Layer 2 (FastAPI REST + SSE Backend) dan Layer 3 (Next.js Local Web UI dengan 4-Tab Interactive Spreadsheet QC, Form Kolom Ad-Hoc, Manajemen Multi-Klien, Import Media Master, & Client Export Column Picker).
 - **Perubahan Utama:**

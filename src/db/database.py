@@ -58,6 +58,21 @@ CREATE TABLE IF NOT EXISTS ai_batch_cache (
     json_result TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS projects (
+    project_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    report_type TEXT NOT NULL DEFAULT 'daily',
+    cutoff_datetime TEXT NOT NULL DEFAULT '',
+    latest_job_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft',
+    total_raw INTEGER NOT NULL DEFAULT 0,
+    total_clean INTEGER NOT NULL DEFAULT 0,
+    total_takeout INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 

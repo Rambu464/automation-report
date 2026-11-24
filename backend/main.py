@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import re
 import tempfile
+import uuid
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 
@@ -26,7 +28,7 @@ from src.config_loader import (
     save_client_config,
 )
 from src.db.database import StateDatabase
-from src.db.repositories import MediaMasterRepo
+from src.db.repositories import MediaMasterRepo, ProjectRecord, ProjectRepo
 from src.settings import AppSettings, get_settings
 
 
@@ -46,6 +48,13 @@ class CreateClientRequest(BaseModel):
     custom_tier_enabled: bool = True
     custom_tier_column: str = ""
     competitors: list[str] = Field(default_factory=list)
+
+
+class CreateProjectRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=150)
+    client_id: str = Field(..., min_length=1, max_length=40)
+    report_type: Literal["daily", "weekly", "monthly", "crisis"] = "daily"
+    cutoff_datetime: str = ""
 
 
 def create_app(
@@ -79,11 +88,49 @@ def create_app(
     def health_check() -> dict[str, str]:
         return {"status": "ok", "service": "newstent-backend"}
 
+    # --- 0. Persistent Projects (1 Kasus = 1 Project) ---
+    project_repo = ProjectRepo(db)
+
+    @app.get("/api/projects")
+    def get_projects() -> dict[str, Any]:
+        return {"projects": [asdict(p) for p in project_repo.list_all()]}
+
+    @app.post("/api/projects", status_code=201)
+    def create_project(req: CreateProjectRequest) -> dict[str, Any]:
+        try:
+            load_client_config(req.client_id, clients_dir=cfg_settings.clients_dir)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        rec = ProjectRecord(
+            project_id=f"prj_{uuid.uuid4().hex[:10]}",
+            name=req.name.strip(),
+            client_id=req.client_id.strip().lower(),
+            report_type=req.report_type,
+            cutoff_datetime=req.cutoff_datetime.strip(),
+        )
+        project_repo.create(rec)
+        return {"status": "created", "project": asdict(rec)}
+
+    @app.get("/api/projects/{project_id}")
+    def get_project(project_id: str) -> dict[str, Any]:
+        rec = project_repo.get(project_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail=f"Project tidak ditemukan: {project_id}")
+        return {"project": asdict(rec)}
+
+    @app.delete("/api/projects/{project_id}")
+    def delete_project(project_id: str) -> dict[str, Any]:
+        if not project_repo.delete(project_id):
+            raise HTTPException(status_code=404, detail=f"Project tidak ditemukan: {project_id}")
+        return {"status": "deleted", "project_id": project_id}
+
     # --- 1. Upload & Start Pipeline ---
     @app.post("/api/upload")
     async def upload_excel(
         files: list[UploadFile] = File(...),
         client_id: str = Form("bri"),
+        project_id: str = Form(""),
         cutoff_datetime: str = Form(""),
         req_upload_urls: str = Form(""),
         takedown_urls: str = Form(""),
@@ -110,11 +157,17 @@ def create_app(
                 req_upload_urls=req_upload_urls,
                 takedown_urls=takedown_urls,
                 skip_ai=skip_ai,
+                project_id=project_id,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-        return {"job_id": job.job_id, "client_id": job.client_id, "status": job.status}
+        return {
+            "job_id": job.job_id,
+            "project_id": job.project_id,
+            "client_id": job.client_id,
+            "status": job.status,
+        }
 
     # --- 2. SSE Live Progress Stream & Status ---
     @app.get("/api/process/{job_id}/stream")

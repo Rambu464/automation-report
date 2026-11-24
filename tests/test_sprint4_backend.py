@@ -117,11 +117,28 @@ def test_fastapi_full_workflow_upload_sse_qc_config_media_and_export(tmp_path: P
         assert r_media.status_code == 200
         assert r_media.json()["records_upserted"] == 1
 
-        # 3. Upload Excel & run pipeline (skip_ai=true for offline deterministic test)
+        # 3. Create Persistent Project & Upload Excel linked to Project (skip_ai=true)
+        r_prj = client.post(
+            "/api/projects",
+            json={
+                "name": "Kasus BRI Test 19 Nov",
+                "client_id": "bri",
+                "report_type": "daily",
+                "cutoff_datetime": "2026-11-19 15:00",
+            },
+        )
+        assert r_prj.status_code == 201
+        project_id = r_prj.json()["project"]["project_id"]
+
         r_up = client.post(
             "/api/upload",
             files={"files": ("newstensity.xlsx", _make_excel_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-            data={"client_id": "bri", "cutoff_datetime": "2026-11-19 15:00", "skip_ai": "true"},
+            data={
+                "client_id": "bri",
+                "project_id": project_id,
+                "cutoff_datetime": "2026-11-19 15:00",
+                "skip_ai": "true",
+            },
         )
         assert r_up.status_code == 200
         job_id = r_up.json()["job_id"]
@@ -201,3 +218,14 @@ def test_fastapi_full_workflow_upload_sse_qc_config_media_and_export(tmp_path: P
         assert client.get(exp["excel_url"]).status_code == 200
         assert client.get(exp["pptx_url"]).status_code == 200
         assert client.get(exp["wording_url"]).status_code == 200
+
+        # 9. Verify Project persisted stats & disk rehydration after simulated backend restart
+        prj_after = client.get(f"/api/projects/{project_id}").json()["project"]
+        assert prj_after["status"] == "completed"
+        assert prj_after["latest_job_id"] == job_id
+        assert prj_after["total_clean"] == 1
+
+        jm._jobs.clear()  # Simulate backend restart
+        qc_rehydrated = client.get(f"/api/qc/{job_id}").json()
+        assert qc_rehydrated["job_id"] == job_id
+        assert qc_rehydrated["report_payload"]["meta"]["total_clean"] == 1

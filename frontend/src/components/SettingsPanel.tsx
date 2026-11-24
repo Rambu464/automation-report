@@ -16,6 +16,7 @@ interface SettingsPanelProps {
   clientId: string;
   onSelectClient: (c: string) => void;
   onClientCreated: (newClientId: string) => Promise<void>;
+  compact?: boolean;
 }
 
 export default function SettingsPanel({
@@ -23,7 +24,9 @@ export default function SettingsPanel({
   clientId,
   onSelectClient,
   onClientCreated,
+  compact = false,
 }: SettingsPanelProps) {
+  const [compactTab, setCompactTab] = useState<"adhoc" | "media" | "pptx">("adhoc");
   const [config, setConfig] = useState<ClientConfigData | null>(null);
   const [newColName, setNewColName] = useState<string>("");
   const [newColDesc, setNewColDesc] = useState<string>("");
@@ -144,18 +147,18 @@ export default function SettingsPanel({
   };
 
   return (
-    <div className="space-y-6">
+    <div className={compact ? "space-y-4" : "space-y-6"}>
       {/* Top Bar: Client Switcher + Create New Client */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Kelola Profil Klien:
+      <div className={compact ? "space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3.5" : "rounded-xl border border-slate-200 bg-white p-5 shadow-sm"}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+              Klien:
             </span>
             <select
               value={clientId}
               onChange={(e) => onSelectClient(e.target.value)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800"
+              className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-bold text-zinc-800"
             >
               {clients.map((c) => (
                 <option key={c} value={c}>
@@ -168,12 +171,37 @@ export default function SettingsPanel({
           <button
             type="button"
             onClick={() => setShowCreateForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-800"
+            className="inline-flex items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-zinc-800"
           >
-            <UserPlus className="h-4 w-4" />
-            {showCreateForm ? "Tutup Form" : "+ Buat Profil Klien Baru"}
+            <UserPlus className="h-3.5 w-3.5" />
+            {showCreateForm ? "Tutup" : "+ Klien Baru"}
           </button>
         </div>
+
+        {compact && (
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-zinc-200/70 p-1">
+            {(
+              [
+                { id: "adhoc", label: "Ad-Hoc" },
+                { id: "media", label: "Master Media" },
+                { id: "pptx", label: "Template PPTX" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setCompactTab(t.id)}
+                className={`rounded-md py-1.5 text-[11px] font-semibold transition ${
+                  compactTab === t.id
+                    ? "bg-white text-zinc-900 shadow-2xs"
+                    : "text-zinc-600 hover:text-zinc-900"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {createMsg && (
           <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 p-2.5 text-xs text-emerald-800">
@@ -248,9 +276,10 @@ export default function SettingsPanel({
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className={compact ? "space-y-4" : "grid grid-cols-1 gap-6 lg:grid-cols-2"}>
         {/* Left: Dynamic Ad-Hoc Columns Editor */}
-        <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        {(!compact || compactTab === "adhoc") && (
+        <div className={compact ? "space-y-3 rounded-xl border border-zinc-200 bg-white p-4" : "space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"}>
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
               Kolom Ad-Hoc Klien ({clientId.toUpperCase()})
@@ -330,10 +359,12 @@ export default function SettingsPanel({
             <p className="text-xs text-slate-400">Memuat konfigurasi klien...</p>
           )}
         </div>
+        )}
 
         {/* Right Column: Media Master Importer + PPTX Template Uploader */}
-        <div className="space-y-6">
-          <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className={compact ? "space-y-4" : "space-y-6"}>
+          {(!compact || compactTab === "media") && (
+          <div className={compact ? "space-y-3 rounded-xl border border-zinc-200 bg-white p-4" : "space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"}>
             <div>
               <h2 className="text-lg font-semibold text-slate-900">
                 Import Master Media &amp; Custom Tier (SQLite)
@@ -383,8 +414,10 @@ export default function SettingsPanel({
               </div>
             )}
           </div>
+          )}
 
-          <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          {(!compact || compactTab === "pptx") && (
+          <div className={compact ? "space-y-3 rounded-xl border border-zinc-200 bg-white p-4" : "space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"}>
             <div>
               <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
                 <Presentation className="h-5 w-5 text-orange-600" />
@@ -428,6 +461,7 @@ export default function SettingsPanel({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

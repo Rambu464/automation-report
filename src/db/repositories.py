@@ -82,6 +82,7 @@ class TakeoutRegistryRepo:
             conn.executemany(sql, rows)
         return len(rows)
 
+
     def get_by_client(self, client_id: str) -> tuple[dict[str, TakeoutRecord], dict[str, TakeoutRecord]]:
         """Return two fast lookup dicts for a client: (by_report_id, by_normalized_url)."""
         sql = "SELECT * FROM takeout_registry WHERE client_id = ?"
@@ -142,6 +143,7 @@ class NegativeIssueMemoryRepo:
         with self.db.connect() as conn:
             conn.executemany(sql, rows)
         return len(rows)
+
 
     def list_by_client(self, client_id: str) -> list[NegativeIssueRecord]:
         sql = "SELECT * FROM negative_issue_memory WHERE client_id = ? ORDER BY last_seen DESC"
@@ -287,3 +289,144 @@ class AIBatchCacheRepo:
         with self.db.connect() as conn:
             conn.executemany(sql, rows)
         return len(rows)
+
+
+@dataclass
+class ProjectRecord:
+    project_id: str
+    name: str
+    client_id: str
+    report_type: str = "daily"
+    cutoff_datetime: str = ""
+    latest_job_id: str = ""
+    status: str = "draft"  # draft | running | completed | failed
+    total_raw: int = 0
+    total_clean: int = 0
+    total_takeout: int = 0
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ProjectRepo:
+    """Manages persistent case-level Projects (1 Kasus = 1 Project)."""
+
+    def __init__(self, db: StateDatabase) -> None:
+        self.db = db
+
+    def create(self, record: ProjectRecord) -> ProjectRecord:
+        sql = """
+        INSERT INTO projects (
+            project_id, name, client_id, report_type, cutoff_datetime,
+            latest_job_id, status, total_raw, total_clean, total_takeout,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        with self.db.connect() as conn:
+            conn.execute(
+                sql,
+                (
+                    record.project_id,
+                    record.name,
+                    record.client_id,
+                    record.report_type,
+                    record.cutoff_datetime,
+                    record.latest_job_id,
+                    record.status,
+                    record.total_raw,
+                    record.total_clean,
+                    record.total_takeout,
+                    record.created_at,
+                    record.updated_at,
+                ),
+            )
+        return record
+
+    def _row_to_record(self, row: Any) -> ProjectRecord:
+        return ProjectRecord(
+            project_id=row["project_id"],
+            name=row["name"],
+            client_id=row["client_id"],
+            report_type=row["report_type"],
+            cutoff_datetime=row["cutoff_datetime"],
+            latest_job_id=row["latest_job_id"],
+            status=row["status"],
+            total_raw=int(row["total_raw"]),
+            total_clean=int(row["total_clean"]),
+            total_takeout=int(row["total_takeout"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def list_all(self) -> list[ProjectRecord]:
+        sql = "SELECT * FROM projects ORDER BY updated_at DESC"
+        with self.db.connect() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def get(self, project_id: str) -> ProjectRecord | None:
+        sql = "SELECT * FROM projects WHERE project_id = ?"
+        with self.db.connect() as conn:
+            row = conn.execute(sql, (project_id,)).fetchone()
+        return self._row_to_record(row) if row else None
+
+    def update_status(
+        self,
+        project_id: str,
+        *,
+        latest_job_id: str | None = None,
+        status: str | None = None,
+        cutoff_datetime: str | None = None,
+        total_raw: int | None = None,
+        total_clean: int | None = None,
+        total_takeout: int | None = None,
+    ) -> ProjectRecord | None:
+        existing = self.get(project_id)
+        if existing is None:
+            return None
+        now_iso = datetime.now(timezone.utc).isoformat()
+        updated = ProjectRecord(
+            project_id=existing.project_id,
+            name=existing.name,
+            client_id=existing.client_id,
+            report_type=existing.report_type,
+            cutoff_datetime=cutoff_datetime if cutoff_datetime is not None else existing.cutoff_datetime,
+            latest_job_id=latest_job_id if latest_job_id is not None else existing.latest_job_id,
+            status=status if status is not None else existing.status,
+            total_raw=total_raw if total_raw is not None else existing.total_raw,
+            total_clean=total_clean if total_clean is not None else existing.total_clean,
+            total_takeout=total_takeout if total_takeout is not None else existing.total_takeout,
+            created_at=existing.created_at,
+            updated_at=now_iso,
+        )
+        sql = """
+        UPDATE projects SET
+            cutoff_datetime = ?,
+            latest_job_id = ?,
+            status = ?,
+            total_raw = ?,
+            total_clean = ?,
+            total_takeout = ?,
+            updated_at = ?
+        WHERE project_id = ?
+        """
+        with self.db.connect() as conn:
+            conn.execute(
+                sql,
+                (
+                    updated.cutoff_datetime,
+                    updated.latest_job_id,
+                    updated.status,
+                    updated.total_raw,
+                    updated.total_clean,
+                    updated.total_takeout,
+                    updated.updated_at,
+                    updated.project_id,
+                ),
+            )
+        return updated
+
+    def delete(self, project_id: str) -> bool:
+        with self.db.connect() as conn:
+            cur = conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
+        return cur.rowcount > 0
+

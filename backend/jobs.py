@@ -20,7 +20,7 @@ from src.cleaning.pipeline import PreCleaningPipeline
 from src.cleaning.url_utils import normalize_url
 from src.config_loader import load_client_config
 from src.db.database import StateDatabase
-from src.db.repositories import TakeoutRecord, TakeoutRegistryRepo
+from src.db.repositories import ProjectRepo, TakeoutRecord, TakeoutRegistryRepo
 from src.generators.excel_generator import generate_cleaned_excel
 from src.generators.pptx_generator import export_pptx_to_pdf, generate_pptx_report
 from src.generators.wording_generator import render_wording_text, save_wording_text
@@ -55,6 +55,7 @@ class JobState:
     job_id: str
     client_id: str
     job_dir: Path
+    project_id: str = ""
     status: str = "queued"  # queued | running | completed | failed
     cutoff_datetime: str = ""
     req_upload_urls: str = ""
@@ -83,14 +84,36 @@ class JobManager:
         self.settings = settings or get_settings()
         self.db = db if db is not None else StateDatabase(self.settings.sqlite_db_path)
         self.llm_client = llm_client
+        self.project_repo = ProjectRepo(self.db)
         self.jobs_root = self.settings.data_dir / "jobs"
         self.jobs_root.mkdir(parents=True, exist_ok=True)
         self._jobs: dict[str, JobState] = {}
 
     def get_job(self, job_id: str) -> JobState:
-        if job_id not in self._jobs:
-            raise KeyError(f"Job tidak ditemukan: {job_id}")
-        return self._jobs[job_id]
+        if job_id in self._jobs:
+            return self._jobs[job_id]
+        # Rehydrate persisted job from disk after backend restart!
+        job_dir = self.jobs_root / job_id
+        payload_path = job_dir / "report_payload.json"
+        if payload_path.exists():
+            meta_file = job_dir / "job_meta.json"
+            meta_info: dict[str, Any] = (
+                json.loads(meta_file.read_text(encoding="utf-8")) if meta_file.exists() else {}
+            )
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            p_meta = payload.get("meta") or {}
+            rehydrated = JobState(
+                job_id=job_id,
+                client_id=meta_info.get("client_id") or p_meta.get("client_id") or "bri",
+                job_dir=job_dir,
+                project_id=meta_info.get("project_id", ""),
+                status="completed",
+                cutoff_datetime=meta_info.get("cutoff_datetime") or p_meta.get("cutoff_wib", ""),
+                url_match_summary=meta_info.get("url_match_summary") or {},
+            )
+            self._jobs[job_id] = rehydrated
+            return rehydrated
+        raise KeyError(f"Job tidak ditemukan: {job_id}")
 
     def create_job(
         self,
@@ -100,6 +123,7 @@ class JobManager:
         req_upload_urls: str = "",
         takedown_urls: str = "",
         skip_ai: bool = False,
+        project_id: str = "",
     ) -> JobState:
         # Validate client config upfront
         load_client_config(client_id, clients_dir=self.settings.clients_dir)
@@ -120,12 +144,20 @@ class JobManager:
             job_id=job_id,
             client_id=client_id,
             job_dir=job_dir,
+            project_id=project_id,
             cutoff_datetime=cutoff_datetime,
             req_upload_urls=req_upload_urls,
             takedown_urls=takedown_urls,
             skip_ai=skip_ai,
         )
         self._jobs[job_id] = job
+        if project_id:
+            self.project_repo.update_status(
+                project_id,
+                latest_job_id=job_id,
+                status="running",
+                cutoff_datetime=cutoff_datetime,
+            )
         job.push_event("progress", "queued", 5, f"File diterima ({len(saved_paths)} file). Menyiapkan pipeline...")
 
         asyncio.create_task(self._run_job(job, saved_paths))
@@ -236,11 +268,23 @@ class JobManager:
             # Persist job state to disk
             self._save_job_dataframes(job, news_df, statements_df, payload, narrative)
             job.status = "completed"
+            if job.project_id:
+                p_meta = payload["meta"]
+                self.project_repo.update_status(
+                    job.project_id,
+                    latest_job_id=job.job_id,
+                    status="completed",
+                    total_raw=p_meta["total_raw"],
+                    total_clean=p_meta["total_clean"],
+                    total_takeout=p_meta["total_takeout"],
+                )
             job.push_event("done", "completed", 100, "Selesai! Silakan tinjau data di Tabel QC atau langsung ekspor 3 Output.")
 
         except Exception as exc:
             job.status = "failed"
             job.error = str(exc)
+            if job.project_id:
+                self.project_repo.update_status(job.project_id, status="failed")
             job.push_event("error", "failed", 100, f"Gagal memproses job: {exc}")
 
     def _save_job_dataframes(
@@ -254,6 +298,20 @@ class JobManager:
         news_df.to_json(job.job_dir / "news.json", orient="records", force_ascii=False, indent=2)
         statements_df.to_json(job.job_dir / "statements.json", orient="records", force_ascii=False, indent=2)
         save_report_payload(payload, job.job_dir / "report_payload.json")
+        (job.job_dir / "job_meta.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job.job_id,
+                    "project_id": job.project_id,
+                    "client_id": job.client_id,
+                    "cutoff_datetime": job.cutoff_datetime,
+                    "url_match_summary": job.url_match_summary,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         if narrative is not None:
             (job.job_dir / "narrative.json").write_text(
                 narrative.model_dump_json(indent=2), encoding="utf-8"
@@ -368,6 +426,14 @@ class JobManager:
             req_upload_matched=int(job.url_match_summary.get("req_upload_matched", 0)),
         )
         save_report_payload(payload, job.job_dir / "report_payload.json")
+        if job.project_id:
+            p_meta = payload["meta"]
+            self.project_repo.update_status(
+                job.project_id,
+                total_raw=p_meta["total_raw"],
+                total_clean=p_meta["total_clean"],
+                total_takeout=p_meta["total_takeout"],
+            )
 
         return {
             "updated_count": updated_count,

@@ -100,6 +100,54 @@ export interface ExportResponse {
   wording_text: string;
 }
 
+export interface ProjectItem {
+  project_id: string;
+  name: string;
+  client_id: string;
+  report_type: "daily" | "weekly" | "monthly" | "crisis";
+  cutoff_datetime: string;
+  latest_job_id: string;
+  status: "draft" | "running" | "completed" | "failed";
+  total_raw: number;
+  total_clean: number;
+  total_takeout: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchProjects(): Promise<ProjectItem[]> {
+  const res = await fetch(`${API_BASE}/api/projects`);
+  if (!res.ok) throw new Error("Gagal memuat daftar project.");
+  const data = await res.json();
+  return data.projects || [];
+}
+
+export async function createProject(payload: {
+  name: string;
+  client_id: string;
+  report_type: "daily" | "weekly" | "monthly" | "crisis";
+  cutoff_datetime: string;
+}): Promise<ProjectItem> {
+  const res = await fetch(`${API_BASE}/api/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal membuat project." }));
+    throw new Error(err.detail || "Gagal membuat project.");
+  }
+  const data = await res.json();
+  return data.project;
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Gagal menghapus project.");
+}
+
 export async function fetchClients(): Promise<string[]> {
   const res = await fetch(`${API_BASE}/api/clients`);
   if (!res.ok) throw new Error("Gagal memuat daftar klien dari backend.");
@@ -130,16 +178,20 @@ export async function createClientProfile(payload: {
 export async function uploadJob(params: {
   files: File[];
   clientId: string;
+  projectId?: string;
   cutoffDatetime: string;
   reqUploadUrls: string;
   takedownUrls: string;
   skipAi: boolean;
-}): Promise<{ job_id: string; client_id: string; status: string }> {
+}): Promise<{ job_id: string; project_id?: string; client_id: string; status: string }> {
   const form = new FormData();
   for (const f of params.files) {
     form.append("files", f);
   }
   form.append("client_id", params.clientId);
+  if (params.projectId) {
+    form.append("project_id", params.projectId);
+  }
   form.append("cutoff_datetime", params.cutoffDatetime);
   form.append("req_upload_urls", params.reqUploadUrls);
   form.append("takedown_urls", params.takedownUrls);
