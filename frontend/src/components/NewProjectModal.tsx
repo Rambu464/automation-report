@@ -66,7 +66,7 @@ export default function NewProjectModal({
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
               <FolderPlus className="h-5 w-5" />
             </div>
             <div>
@@ -94,7 +94,7 @@ export default function NewProjectModal({
               onChange={(e) => setName(e.target.value)}
               placeholder="Contoh: BNI Jember 16–19 Nov 2026"
               autoFocus
-              className="w-full rounded-xl border border-zinc-300 px-3.5 py-2 text-sm focus:border-orange-500 focus:outline-none"
+              className="w-full rounded-xl border border-zinc-300 px-3.5 py-2 text-sm focus:border-blue-600 focus:outline-none"
             />
           </div>
 
@@ -106,7 +106,7 @@ export default function NewProjectModal({
               <select
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-600 focus:outline-none"
               >
                 {clients.map((c) => (
                   <option key={c} value={c}>
@@ -125,7 +125,7 @@ export default function NewProjectModal({
                 onChange={(e) =>
                   setReportType(e.target.value as "daily" | "weekly" | "monthly" | "crisis")
                 }
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-600 focus:outline-none"
               >
                 <option value="daily">Daily Report</option>
                 <option value="weekly">Weekly Report</option>
@@ -143,7 +143,7 @@ export default function NewProjectModal({
               type="datetime-local"
               value={cutoffDatetime}
               onChange={(e) => setCutoffDatetime(e.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-3.5 py-2 text-sm focus:border-orange-500 focus:outline-none"
+              className="w-full rounded-xl border border-zinc-300 px-3.5 py-2 text-sm focus:border-blue-600 focus:outline-none"
             />
           </div>
 
@@ -165,7 +165,7 @@ export default function NewProjectModal({
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-xl bg-orange-500 px-5 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-orange-600 disabled:opacity-50"
+              className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-blue-700 disabled:opacity-50"
             >
               {submitting ? "Membuat..." : "Buat Project"}
             </button>

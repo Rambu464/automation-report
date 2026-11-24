@@ -103,8 +103,8 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
       num: "1",
       title: "Raw Excel",
       desc: ".xls with Statements",
-      icon: <FileSpreadsheet className="h-4 w-4 text-orange-600" />,
-      ring: "border-orange-200 bg-orange-50/70",
+      icon: <FileSpreadsheet className="h-4 w-4 text-blue-700" />,
+      ring: "border-blue-200 bg-blue-50/70",
       active: files.length > 0 || percent > 0,
     },
     {
@@ -195,9 +195,9 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50/70 px-6 py-8 text-center transition hover:border-orange-400 hover:bg-orange-50/40"
+            className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50/70 px-6 py-8 text-center transition hover:border-blue-400 hover:bg-blue-50/40"
           >
-            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-100 text-blue-700">
               <UploadCloud className="h-6 w-6" />
             </div>
             <p className="text-sm font-medium text-zinc-700">
@@ -217,10 +217,10 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
           </div>
 
           {files.length > 0 && (
-            <div className="space-y-1.5 rounded-xl border border-orange-200 bg-orange-50/50 p-3">
+            <div className="space-y-1.5 rounded-xl border border-blue-200 bg-blue-50/50 p-3">
               {files.map((f) => (
                 <div key={f.name} className="flex items-center gap-2 text-xs text-zinc-800">
-                  <FileSpreadsheet className="h-4 w-4 text-orange-600" />
+                  <FileSpreadsheet className="h-4 w-4 text-blue-700" />
                   <span className="font-semibold">{f.name}</span>
                   <span className="text-zinc-500">({(f.size / 1024).toFixed(1)} KB)</span>
                 </div>
@@ -238,7 +238,7 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
                 type="datetime-local"
                 value={cutoffDatetime}
                 onChange={(e) => setCutoffDatetime(e.target.value)}
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-orange-500 focus:outline-none"
+                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
               />
             </div>
 
@@ -248,7 +248,7 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
                   type="checkbox"
                   checked={skipAi}
                   onChange={(e) => setSkipAi(e.target.checked)}
-                  className="h-4 w-4 rounded border-zinc-300 text-orange-600"
+                  className="h-4 w-4 rounded border-zinc-300 text-blue-700"
                 />
                 Mode Pre-Clean Only (0 Token AI — tanpa panggilan LLM)
               </label>
@@ -266,7 +266,7 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
                 value={reqUploadUrls}
                 onChange={(e) => setReqUploadUrls(e.target.value)}
                 placeholder="https://kompas.com/..."
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-orange-500 focus:outline-none"
+                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
               />
             </div>
             <div>
@@ -278,7 +278,7 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
                 value={takedownUrls}
                 onChange={(e) => setTakedownUrls(e.target.value)}
                 placeholder="https://portal.id/berita-takedown..."
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-orange-500 focus:outline-none"
+                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
               />
             </div>
           </div>
@@ -316,7 +316,7 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
           </div>
           <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-100">
             <div
-              className="h-full rounded-full bg-orange-500 transition-all duration-300"
+              className="h-full rounded-full bg-blue-600 transition-all duration-300"
               style={{ width: `${percent}%` }}
             />
           </div>
@@ -336,7 +336,7 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
                   ) : ev.event === "error" ? (
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" />
                   ) : (
-                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-orange-500" />
+                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-600" />
                   )}
                   <span className="text-zinc-700">{ev.message}</span>
                 </div>

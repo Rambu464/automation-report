@@ -156,10 +156,10 @@ export default function ExportPanel({ qcData }: ExportPanelProps) {
 
               <a
                 href={`${API_BASE}${result.pptx_url}`}
-                className="flex items-center justify-between rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-900 transition hover:bg-orange-100"
+                className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900 transition hover:bg-blue-100"
               >
                 <span className="flex items-center gap-2">
-                  <Presentation className="h-5 w-5 text-orange-700" />
+                  <Presentation className="h-5 w-5 text-blue-700" />
                   Output 2: Report (.pptx)
                 </span>
                 <Download className="h-4 w-4" />

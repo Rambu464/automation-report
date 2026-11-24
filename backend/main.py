@@ -57,6 +57,15 @@ class CreateProjectRequest(BaseModel):
     cutoff_datetime: str = ""
 
 
+class UpdateSystemAISettingsRequest(BaseModel):
+    deepseek_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    groq_api_key: str | None = None
+    gemini_api_key: str | None = None
+    ai_batch_size: int | None = Field(default=None, ge=5, le=100)
+    ai_max_concurrency: int | None = Field(default=None, ge=1, le=12)
+
+
 def create_app(
     settings: AppSettings | None = None,
     job_manager: JobManager | None = None,
@@ -87,6 +96,83 @@ def create_app(
     @app.get("/api/health")
     def health_check() -> dict[str, str]:
         return {"status": "ok", "service": "newstent-backend"}
+
+    @app.get("/api/system/ai-status")
+    def get_system_ai_status() -> dict[str, Any]:
+        s = get_settings()
+        return {
+            "providers": [
+                {
+                    "id": "deepseek",
+                    "name": "DeepSeek (Primary)",
+                    "model": s.deepseek_primary_model,
+                    "pro_model": s.deepseek_pro_model,
+                    "configured": bool(s.deepseek_api_key.strip()),
+                },
+                {
+                    "id": "openrouter",
+                    "name": "Qwen via OpenRouter",
+                    "model": s.openrouter_model,
+                    "configured": bool(s.openrouter_api_key.strip()),
+                },
+                {
+                    "id": "groq",
+                    "name": "Llama 3.3 via Groq",
+                    "model": s.groq_model,
+                    "configured": bool(s.groq_api_key.strip()),
+                },
+                {
+                    "id": "gemini",
+                    "name": "Google Gemini",
+                    "model": s.gemini_model,
+                    "configured": bool(s.gemini_api_key.strip()),
+                },
+            ],
+            "ai_batch_size": s.ai_batch_size,
+            "ai_max_concurrency": s.ai_max_concurrency,
+            "ai_max_retries": s.ai_max_retries,
+        }
+
+    @app.put("/api/system/ai-settings")
+    def update_system_ai_settings(req: UpdateSystemAISettingsRequest) -> dict[str, Any]:
+        env_path = Path(".env")
+        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+        updates: dict[str, str] = {}
+        if req.deepseek_api_key is not None and req.deepseek_api_key.strip():
+            updates["DEEPSEEK_API_KEY"] = req.deepseek_api_key.strip()
+        if req.openrouter_api_key is not None and req.openrouter_api_key.strip():
+            updates["OPENROUTER_API_KEY"] = req.openrouter_api_key.strip()
+        if req.groq_api_key is not None and req.groq_api_key.strip():
+            updates["GROQ_API_KEY"] = req.groq_api_key.strip()
+        if req.gemini_api_key is not None and req.gemini_api_key.strip():
+            updates["GEMINI_API_KEY"] = req.gemini_api_key.strip()
+        if req.ai_batch_size is not None:
+            updates["AI_BATCH_SIZE"] = str(req.ai_batch_size)
+        if req.ai_max_concurrency is not None:
+            updates["AI_MAX_CONCURRENCY"] = str(req.ai_max_concurrency)
+
+        if updates:
+            seen: set[str] = set()
+            new_lines: list[str] = []
+            for line in lines:
+                matched_key = None
+                for k in updates:
+                    if line.startswith(f"{k}="):
+                        matched_key = k
+                        break
+                if matched_key:
+                    new_lines.append(f"{matched_key}={updates[matched_key]}")
+                    seen.add(matched_key)
+                else:
+                    new_lines.append(line)
+            for k, v in updates.items():
+                if k not in seen:
+                    new_lines.append(f"{k}={v}")
+            env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            get_settings.cache_clear()
+            jm.settings = get_settings()
+
+        return {"status": "saved", "ai_status": get_system_ai_status()}
 
     # --- 0. Persistent Projects (1 Kasus = 1 Project) ---
     project_repo = ProjectRepo(db)

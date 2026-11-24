@@ -148,6 +148,45 @@ export async function deleteProject(projectId: string): Promise<void> {
   if (!res.ok) throw new Error("Gagal menghapus project.");
 }
 
+export interface AIProviderStatus {
+  id: string;
+  name: string;
+  model: string;
+  pro_model?: string;
+  configured: boolean;
+}
+
+export interface SystemAIStatus {
+  providers: AIProviderStatus[];
+  ai_batch_size: number;
+  ai_max_concurrency: number;
+  ai_max_retries: number;
+}
+
+export async function fetchSystemAIStatus(): Promise<SystemAIStatus> {
+  const res = await fetch(`${API_BASE}/api/system/ai-status`);
+  if (!res.ok) throw new Error("Gagal memuat status provider AI.");
+  return res.json();
+}
+
+export async function updateSystemAISettings(payload: {
+  deepseek_api_key?: string;
+  openrouter_api_key?: string;
+  groq_api_key?: string;
+  gemini_api_key?: string;
+  ai_batch_size?: number;
+  ai_max_concurrency?: number;
+}): Promise<SystemAIStatus> {
+  const res = await fetch(`${API_BASE}/api/system/ai-settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Gagal menyimpan pengaturan AI.");
+  const data = await res.json();
+  return data.ai_status;
+}
+
 export async function fetchClients(): Promise<string[]> {
   const res = await fetch(`${API_BASE}/api/clients`);
   if (!res.ok) throw new Error("Gagal memuat daftar klien dari backend.");

@@ -65,17 +65,17 @@ export default function WorkflowCanvas({
         <div className="mx-auto flex min-w-[680px] max-w-4xl flex-col items-center">
           {/* NODE 1: TRIGGER — Input Raw Data */}
           <div className="flex flex-col items-center">
-            <span className="mb-1.5 rounded-full bg-orange-500 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-2xs">
+            <span className="mb-1.5 rounded-full bg-blue-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-2xs">
               Trigger • Input
             </span>
             <button
               type="button"
               onClick={() => onSelectNode("upload")}
-              className="group w-80 rounded-2xl border-2 border-orange-200 bg-white p-4 text-left shadow-xs transition hover:-translate-y-0.5 hover:border-orange-400 hover:shadow-md"
+              className="group w-80 rounded-2xl border-2 border-blue-200 bg-white p-4 text-left shadow-xs transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
                     <FileSpreadsheet className="h-5 w-5" />
                   </div>
                   <div>
@@ -83,7 +83,7 @@ export default function WorkflowCanvas({
                     <div className="text-[11px] text-zinc-500">.xls with Statements</div>
                   </div>
                 </div>
-                <ArrowUpRight className="h-4 w-4 text-zinc-300 transition group-hover:text-orange-500" />
+                <ArrowUpRight className="h-4 w-4 text-zinc-300 transition group-hover:text-blue-600" />
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2.5 text-[11px]">
                 <span className="font-medium text-zinc-600">
@@ -91,7 +91,7 @@ export default function WorkflowCanvas({
                   {project.cutoff_datetime ? ` • ${project.cutoff_datetime}` : ""}
                 </span>
                 {meta ? (
-                  <span className="rounded-md bg-orange-50 px-2 py-0.5 font-bold text-orange-700">
+                  <span className="rounded-md bg-blue-50 px-2 py-0.5 font-bold text-blue-700">
                     {meta.total_raw} raw
                   </span>
                 ) : (
@@ -252,7 +252,7 @@ export default function WorkflowCanvas({
           </button>
 
           {/* 3-Way Branching SVG Connector 4 -> 5a / 5b / 5c */}
-          <svg className="h-12 w-full max-w-3xl text-orange-300" viewBox="0 0 600 48" fill="none">
+          <svg className="h-12 w-full max-w-3xl text-blue-300" viewBox="0 0 600 48" fill="none">
             <path d="M300 0 V20" stroke="currentColor" strokeWidth="2" />
             <path d="M100 20 H500" stroke="currentColor" strokeWidth="2" />
             <path d="M100 20 V42" stroke="currentColor" strokeWidth="2" strokeDasharray="4 3" />
@@ -293,15 +293,15 @@ export default function WorkflowCanvas({
               onClick={() => onSelectNode("export_pptx")}
               className={`group rounded-2xl border-2 bg-white p-4 text-left shadow-xs transition ${
                 isCompleted
-                  ? "border-orange-200 hover:-translate-y-0.5 hover:border-orange-400 hover:shadow-md"
+                  ? "border-blue-200 hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
                   : "cursor-not-allowed border-zinc-200 opacity-60"
               }`}
             >
               <div className="flex items-center justify-between">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100 text-orange-700">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
                   <Presentation className="h-4 w-4" />
                 </div>
-                <ArrowUpRight className="h-4 w-4 text-zinc-300 group-hover:text-orange-600" />
+                <ArrowUpRight className="h-4 w-4 text-zinc-300 group-hover:text-blue-700" />
               </div>
               <div className="mt-2.5 text-xs font-bold text-zinc-900">Report PPTX/PDF</div>
               <div className="mt-0.5 text-[11px] text-zinc-500">
@@ -342,7 +342,7 @@ export default function WorkflowCanvas({
           className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
         >
           <span className="inline-flex items-center gap-2">
-            <Terminal className="h-3.5 w-3.5 text-orange-500" />
+            <Terminal className="h-3.5 w-3.5 text-blue-600" />
             RUN LOG • {project.name}
           </span>
           <span className="inline-flex items-center gap-2 text-[11px] font-normal text-zinc-500">
@@ -370,7 +370,7 @@ export default function WorkflowCanvas({
               </div>
             ) : (
               <div>
-                <span className="text-orange-500">●</span> Project dibuat. Klik node <strong>Input Raw Data</strong> di atas untuk mengunggah file <code>.xls with Statements</code> dan menjalankan pipeline.
+                <span className="text-blue-600">●</span> Project dibuat. Klik node <strong>Input Raw Data</strong> di atas untuk mengunggah file <code>.xls with Statements</code> dan menjalankan pipeline.
               </div>
             )}
           </div>
