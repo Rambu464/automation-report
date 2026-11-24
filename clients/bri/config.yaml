@@ -1,0 +1,63 @@
+client_id: "bri"
+client_name: "Bank Rakyat Indonesia (BRI)"
+focus_type: "brand_and_competitor"
+
+# 1. Aturan Sanitasi Content & Filtering Spam/Takeout Khusus Klien
+takeout_rules:
+  auto_takeout_newswire: true
+  exclude_pure_ads: true
+  content_noise_patterns: # Dihapus dari kolom Content sebelum dikirim ke AI
+    - "(?i)baca juga\\s*:.*"
+    - "(?i)cek berita lainnya.*"
+    - "(?i)simak juga\\s*:.*"
+  regex_spam_patterns: # Pre-filter 0 token AI di Python
+    - "^Iklan\\s*[-–:]"
+    - "Tabel Angsuran KUR|Simulasi Tabel Angsuran|Syarat Pengajuan KUR|Saldo KKS.*(PKH|BPNT)"
+  client_specific_exclusions:
+    - "Berita yang murni bersifat iklan, promo diskon/undian tanpa substansi korporasi/kinerja"
+    - "Berita pasar saham rutin yang hanya menyebut kode saham sekilas tanpa konteks"
+  sync_sensitive_negative_to_monthly: true
+
+# 2. Aturan Sentimen & Format Kalimat Newstrend
+newstrend_rules:
+  evaluate_from_content: true
+  sentence_style: "active_sentence" # Kalimat aktif
+  max_words: 12                     # Batas maksimal kata per Newstrend
+  enforce_negative_consistency: true
+  sentiment_wording_hints:
+    negative: "Biasanya mengandung kata seperti 'Kasus ...'"
+    neutral: "Biasanya mengandung kata seperti 'Tanggapan ...'"
+    positive: "Kalimat aktif langsung (misal: 'BRI Salurkan Pembiayaan UMKM...')"
+
+# 3. Aturan Spokesperson, Atribut Media, & Custom Tier Klien
+media_and_spokesperson:
+  classify_content_type: ["Rilis", "Organik"]
+  classify_media_detail: ["Organik", "Newswire", "Media Bazar"]
+  custom_tier:
+    enabled: true
+    client_key: "bri"                 # Kunci lookup pada MEDIA_MASTER_HYPESTAT.client_custom_tier_json
+    excel_column_name: "TIER BRI"     # Nama kolom Custom Tier di file Excel Cleaned
+    fallback_to_bino_tier: true       # Gunakan tier_bino jika domain belum ada di daftar custom klien
+  spokesperson_fallback_to_content: true
+  spokesperson_missing_value: "0"     # Wajib diisi 0 jika tidak ada di Statements maupun Content
+
+# 4. Kolom Tambahan Ad-Hoc (Dapat ditambah/diubah analis kapan saja)
+adhoc_columns:
+  - name: "Kluster"
+    description: "Kelompokkan ke dalam: Korporasi & Keuangan, UMKM & KUR, Layanan Digital (BRImo), CSR, atau Hukum/Kriminal"
+  - name: "Paid_Earned"
+    description: "Klasifikasikan menjadi 'Paid' (jika advertorial/rilis berbayar/media bazar) atau 'Earned' (jika liputan organik jurnalis)"
+
+# 5. Konfigurasi Kurasi Kompetitor (Opsional: set enabled: false untuk laporan krisis/single-brand)
+competitors:
+  enabled: true
+  entities: ["Bank Mandiri", "BCA", "BNI", "BTN"]
+  evaluate_using_competitor_pov: true
+  daily_highlight_count_per_sentiment: 3 # Pilih 2-3 berita positif & negatif terbaik per kompetitor
+  prioritize_by_media_tier: ["Tier 1", "Tier 2", "Tier 3"]
+
+# 6. Konfigurasi Template Output (PPTX & Wording)
+output_templates:
+  pptx_template_path: "clients/bri/template_daily.pptx"
+  excel_template_path: null            # null = generate workbook baru via xlsxwriter
+  wording_include_sosmed_block: false  # Opsional di v1 jika hanya unggah .xls Media (true bila ada data sosmed)

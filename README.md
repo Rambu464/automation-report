@@ -12,8 +12,10 @@ Newstensity/
 │   ├── phase-1-requirements/
 │   │   ├── BRD.md                     # Business Requirements Document (Non-Teknis / Operasional)
 │   │   └── SRS.md                     # Software Requirements Specification (Teknis Developer & AI)
-│   └── phase-2-design/
-│       └── SAD.md                     # Software Architecture Document (Desain Sistem, DB, & Web UI)
+│   ├── phase-2-design/
+│   │   └── SAD.md                     # Software Architecture Document (Desain Sistem, DB, & Web UI)
+│   └── phase-3-development/
+│       └── DEV_TRACKER.md             # Pelacakan Sprint, Checklist Task, & Log Implementasi Phase 3
 ├── clients/                           # Folder per klien: config.yaml + template PPT/Excel
 ├── data/                              # Runtime data: raw input, SQLite state DB, & output (ignored Git)
 ├── src/                               # Layer 1: Core Engine Python modular (Phase 3)
@@ -34,6 +36,6 @@ Newstensity/
 | :--- | :--- | :--- | :--- |
 | **Phase 1: Planning & Requirements** | ✅ Selesai | Analisis kebutuhan bisnis (*BRD*) & spesifikasi teknis sistem (*SRS*: FR/NFR, Cloud AI, & estimasi biaya). | [`docs/phase-1-requirements/`](./docs/phase-1-requirements/) |
 | **Phase 2: System & Architecture Design** | ✅ Selesai | Desain arsitektur (*SAD*), skema SQLite (4 tabel), 3-Pass AI Engine, `config.yaml` *ad-hoc*, & **Next.js + FastAPI**. | [`docs/phase-2-design/SAD.md`](./docs/phase-2-design/SAD.md) |
-| **Phase 3: Core Development** | 🔄 Siap Dimulai | Implementasi 4 Sprint: `Pre-Cleaning`, `AI Engine`, `Auto-Pivot & Triple Deliverables`, & `Local Web UI`. | `src/`, `backend/`, `frontend/` |
+| **Phase 3: Core Development** | ✅ Selesai | Implementasi 4 Sprint: `Pre-Cleaning`, `AI Engine`, `Auto-Pivot & Triple Deliverables`, & `Local Web UI`. | [`DEV_TRACKER.md`](./docs/phase-3-development/DEV_TRACKER.md) |
 | **Phase 4: Testing & Quality Control** | ⏳ Mendatang | Uji akurasi *Takeout/Spokesperson/Newstrend*, validasi 0 selisih Pivot & 0 *mismatch* Media-URL. | `tests/` |
 | **Phase 5: Local Deployment & Handover** | ⏳ Mendatang | Paket *one-click launcher* lokal (FastAPI + Next.js) siap pakai sebelum pukul 09.00 WIB. | — |

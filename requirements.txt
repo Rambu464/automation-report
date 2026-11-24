@@ -1,0 +1,32 @@
+# Core Data & Excel Engineering (SRS Bab 8 & SAD Bab 7D)
+pandas>=2.2.0
+python-calamine>=0.3.0
+xlsxwriter>=3.2.0
+openpyxl>=3.1.5
+
+# Deduplication & Text Processing
+rapidfuzz>=3.10.0
+
+# Cloud AI SDK & Strict Schema Validation
+openai>=1.55.0
+google-genai>=1.0.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Config & Environment
+PyYAML>=6.0.2
+python-dotenv>=1.0.1
+
+# Visual Report Generation (.pptx & Charts)
+python-pptx>=1.0.2
+matplotlib>=3.9.0
+
+# Local Backend API (FastAPI + SSE)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.18
+httpx>=0.28.0
+
+# Testing & QA
+pytest>=8.3.0
+pytest-asyncio>=0.24.0

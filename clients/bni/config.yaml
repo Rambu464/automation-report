@@ -1,0 +1,63 @@
+client_id: "bni"
+client_name: "Bank Negara Indonesia (BNI)"
+focus_type: "brand_and_competitor"
+
+# 1. Aturan Sanitasi Content & Filtering Spam/Takeout Khusus Klien
+takeout_rules:
+  auto_takeout_newswire: true
+  exclude_pure_ads: true
+  content_noise_patterns:
+    - "(?i)baca juga\\s*:.*"
+    - "(?i)cek berita lainnya.*"
+    - "(?i)simak juga\\s*:.*"
+  regex_spam_patterns:
+    - "^Iklan\\s*[-–:]"
+    - "Tabel Angsuran KUR|Simulasi Tabel Angsuran|Syarat Pengajuan KUR|Saldo KKS.*(PKH|BPNT)"
+  client_specific_exclusions:
+    - "Berita yang murni bersifat iklan, promo diskon/undian tanpa substansi korporasi/kinerja"
+    - "Berita pasar saham rutin yang hanya menyebut kode saham BBNI sekilas tanpa konteks"
+  sync_sensitive_negative_to_monthly: true
+
+# 2. Aturan Sentimen & Format Kalimat Newstrend
+newstrend_rules:
+  evaluate_from_content: true
+  sentence_style: "active_sentence"
+  max_words: 12
+  enforce_negative_consistency: true
+  sentiment_wording_hints:
+    negative: "Biasanya mengandung kata seperti 'Kasus ...'"
+    neutral: "Biasanya mengandung kata seperti 'Tanggapan ...'"
+    positive: "Kalimat aktif langsung (misal: 'BNI Dorong Ekspansi Bisnis UMKM Global...')"
+
+# 3. Aturan Spokesperson, Atribut Media, & Custom Tier Klien
+media_and_spokesperson:
+  classify_content_type: ["Rilis", "Organik"]
+  classify_media_detail: ["Organik", "Newswire", "Media Bazar"]
+  custom_tier:
+    enabled: true
+    client_key: "bni"                 # Kunci lookup pada MEDIA_MASTER_HYPESTAT.client_custom_tier_json
+    excel_column_name: "TIER BNI"     # Nama kolom Custom Tier di file Excel Cleaned
+    fallback_to_bino_tier: true
+  spokesperson_fallback_to_content: true
+  spokesperson_missing_value: "0"
+
+# 4. Kolom Tambahan Ad-Hoc
+adhoc_columns:
+  - name: "Kluster"
+    description: "Kelompokkan ke dalam: Korporasi & Keuangan, UMKM & Xpora, Layanan Digital (wondr by BNI), CSR, atau Hukum/Kriminal"
+  - name: "Paid_Earned"
+    description: "Klasifikasikan menjadi 'Paid' (jika advertorial/rilis berbayar/media bazar) atau 'Earned' (jika liputan organik jurnalis)"
+
+# 5. Konfigurasi Kurasi Kompetitor
+competitors:
+  enabled: true
+  entities: ["BRI", "Bank Mandiri", "BCA", "BTN"]
+  evaluate_using_competitor_pov: true
+  daily_highlight_count_per_sentiment: 3
+  prioritize_by_media_tier: ["Tier 1", "Tier 2", "Tier 3"]
+
+# 6. Konfigurasi Template Output (PPTX & Wording)
+output_templates:
+  pptx_template_path: "clients/bni/template_daily.pptx"
+  excel_template_path: null
+  wording_include_sosmed_block: false
