@@ -33,7 +33,7 @@ Newstensity/
 | Fase | Status | Fokus Utama | Dokumen / Lokasi |
 | :--- | :--- | :--- | :--- |
 | **Phase 1: Planning & Requirements** | ✅ Selesai | Analisis kebutuhan bisnis (*BRD*) & spesifikasi teknis sistem (*SRS*: FR/NFR, Cloud AI, & estimasi biaya). | [`docs/phase-1-requirements/`](./docs/phase-1-requirements/) |
-| **Phase 2: System & Architecture Design** | 🔄 Proses | Desain arsitektur (*SAD*), skema SQLite (4 tabel), `config.yaml` *ad-hoc*, & arsitektur **Next.js + FastAPI**. | [`docs/phase-2-design/SAD.md`](./docs/phase-2-design/SAD.md) |
-| **Phase 3: Core Development** | ⏳ Mendatang | Implementasi 4 Sprint: `Pre-Cleaning`, `AI Engine`, `Auto-Pivot & Dual Deliverables`, & `Local Web UI`. | `src/`, `backend/`, `frontend/` |
+| **Phase 2: System & Architecture Design** | ✅ Selesai | Desain arsitektur (*SAD*), skema SQLite (4 tabel), 3-Pass AI Engine, `config.yaml` *ad-hoc*, & **Next.js + FastAPI**. | [`docs/phase-2-design/SAD.md`](./docs/phase-2-design/SAD.md) |
+| **Phase 3: Core Development** | 🔄 Siap Dimulai | Implementasi 4 Sprint: `Pre-Cleaning`, `AI Engine`, `Auto-Pivot & Triple Deliverables`, & `Local Web UI`. | `src/`, `backend/`, `frontend/` |
 | **Phase 4: Testing & Quality Control** | ⏳ Mendatang | Uji akurasi *Takeout/Spokesperson/Newstrend*, validasi 0 selisih Pivot & 0 *mismatch* Media-URL. | `tests/` |
 | **Phase 5: Local Deployment & Handover** | ⏳ Mendatang | Paket *one-click launcher* lokal (FastAPI + Next.js) siap pakai sebelum pukul 09.00 WIB. | — |

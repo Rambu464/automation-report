@@ -37,7 +37,7 @@ flowchart LR
    - Dalam praktik operasional saat ini, pengolahan sentimen dan *Newstrend* pada *tool* web yang ada sering terkendala proses yang lambat dan batas token rendah (*low token limit*), sementara ChatGPT Web terkena *hit limit* setelah 2 klien.
    - Sebagai **alat bantu otomasi alur kerja analis (*Analyst Workflow Automation Tool*)**, sistem ini memanggil Cloud AI (DeepSeek/OpenRouter) melalui **Micro-Batching (25–35 baris/call) secara paralel/asinkron (`asyncio`)**, **Integer ID Mapping** (memangkas 32.000 token hash ID), **Smart Context Slicing**, dan **Local SQLite Cache**, sehingga 800 baris tidak pernah terkena *low token limit* dan selesai dalam $< 3$ menit.
 3. **Arsitektur 3 Lapis (*Core Engine* Terpisah dari *Web UI*):**
-   - **`src/` (Deterministic Python Core):** Memegang kendali penuh atas integritas pasangan data (`ID`, `Media Name`, `Page/URL`, `Date`), *Auto-Pivot*, dan *Dual-Deliverable Generator* (mencegah *mismatch* Nama Media & URL oleh AI).
+   - **`src/` (Deterministic Python Core):** Memegang kendali penuh atas integritas pasangan data (`ID`, `Media Name`, `Page/URL`, `Date`), *Auto-Pivot*, dan *Triple-Deliverable Generator* (mencegah *mismatch* Nama Media & URL oleh AI).
    - **`backend/` (FastAPI):** Membungkus `src/` menjadi REST API + *Server-Sent Events (SSE)* untuk *progress bar real-time*.
    - **`frontend/` (Next.js):** Memberikan antarmuka web lokal interaktif (upload *drag-and-drop*, tabel QC mirip Excel di browser, form kolom *ad-hoc*, dan *Column Picker* ekspor klien).
 
@@ -68,7 +68,7 @@ flowchart LR
 
 | Tahap Workflow | Model / Engine yang **BAGUS (Recommended)** | Model / Engine yang **TIDAK BAGUS (Avoid)** | Alasan Engineering |
 | :--- | :--- | :--- | :--- |
-| **1. Deduplikasi `ID`, Flag Jam `00:00`, Filter *Newswire*, Lookup *Hypestat/Media Bazar*, & Sync *Takeout* Bulanan** | **Python Murni + SQLite Lookup** (`pandas`, `re`, `sqlite3`) — **0 Token AI** | **Semua LLM** | Validasi jam `00:00`, pencocokan daftar domain *Newswire/Media Bazar*, *Media Tier/Hypestat*, dan sinkronisasi ID *Takeout* bulanan wajib 100% deterministik di Python. |
+| **1. Deduplikasi (URL & Media Sama `Title+Content`), Flag Jam `00:00`, Filter *Newswire*, Lookup *Hypestat/Media Bazar*, & Sync *Takeout* Bulanan** | **Python Murni + SQLite Lookup** (`pandas`, `re`, `rapidfuzz`, `sqlite3`) — **0 Token AI** | **Semua LLM** | Validasi duplikasi (URL & konten media sama), jam `00:00`, pencocokan daftar domain *Newswire/Media Bazar*, *Media Tier/Hypestat*, dan sinkronisasi `ID` *Takeout* bulanan wajib 100% deterministik di Python. |
 | **2. Deteksi *Spam/Iklan* (`Takeout` + `Alasan_Spam`) & Klasifikasi `Content_Type` (*Rilis vs Organik*)** | **DeepSeek-V4.1/V3.1 (Instruct)**, **Qwen 3 / 2.5 72B**, atau **Gemini 2.5 Flash** | **Model Kecil (<14B)** & **Model *Reasoning* Murni (R1/o1)** | Butuh pemahaman konteks untuk membedakan berita organik vs. berita rilis vs. iklan murni (seperti aturan eksklusi iklan BRI) sekaligus menuliskan `Alasan_Spam` yang jelas. |
 | **3. Ekstraksi *Spokesperson & Jabatan* Fallback (`Statements` $\rightarrow$ `Content` $\rightarrow$ `0`)** | **Python (`Statements` join) $\rightarrow$ DeepSeek/Qwen (Hanya jika `Statements` kosong) $\rightarrow$ Python (`0` default)** | Meminta LLM mengekstrak ulang baris yang sudah ada di `Statements` | Menghemat waktu dan token: Python mengisi dulu dari sheet `Statements`; LLM hanya membaca `Content` untuk baris yang kosong; jika tidak ditemukan, Python otomatis mengisi `0`. |
 | **4. *Sentiment Correction* (POV Klien & POV Kompetitor) + Memori Konsistensi Isu Negatif** | **DeepSeek-V4.1/V3.1 (Instruct)** + **SQLite Negative Issue Memory** | **IndoBERT / Lexicon** & **Llama 3.3 70B** | Sentimen harus menilai dari POV klien (atau POV kompetitor untuk kurasi berita kompetitor) dan wajib konsisten negatif apabila isu yang sama muncul kembali. |
@@ -109,7 +109,7 @@ Mengacu pada dokumentasi tarif resmi **DeepSeek API (`api-docs.deepseek.com`)** 
 
 ```mermaid
 flowchart TD
-    ManualDownload["1. Input Manual Analis (.xls dari Dashboard)<br/>Topik & Cutoff diatur manual -> Unduh Excel with Statements / Newstrend"] --> PreClean["2. Pre-Cleaning, Cutoff & Media Enrichment (Python)<br/>Deduplikasi ID, Flag Jam 00:00, Cek Newswire/Media Bazar, Lookup Tier/Hypestat, Cek History Takeout"]
+    ManualDownload["1. Input Manual Analis (.xls dari Dashboard)<br/>Topik & Cutoff diatur manual -> Unduh Excel with Statements"] --> PreClean["2. Pre-Cleaning, Cutoff & Media Enrichment (Python)<br/>Deduplikasi URL & Media Sama (Title+Content), Flag Jam 00:00, Cek Newswire/Media Bazar, Lookup Tier/Hypestat, Cek History Takeout"]
 
     SQLiteDB[("SQLite Local State DB<br/>- takeout_registry (Monthly Sync)<br/>- negative_issue_memory<br/>- media_tier_hypestat<br/>- ai_batch_cache")] <--> PreClean
     ConfigKlien["Config Klien & Ad-Hoc Schema (config.yaml)<br/>Aturan Takeout/Iklan, Format Kalimat Newstrend, Kolom Ad-Hoc (Kluster/Paid/Earned)"] --> AI_Engine
@@ -135,12 +135,17 @@ flowchart TD
   - Definisi **Kolom Tambahan Ad-Hoc** (seperti `Kluster`, `Paid` vs. `Earned`, `Content_Type`, `Nama_Isu`) yang dapat diaktifkan/ditambahkan sewaktu-waktu sesuai perubahan permintaan klien.
 
 ### FR-02: Pre-Cleaning, Validasi Jam `00:00` (*Cutoff*), Atribut Media, & Sinkronisasi *Takeout*
-- **FR-02.1 (Deduplikasi `ID` & Sinkronisasi `Statements`):** Deduplikasi eksak berbasis `ID` pada sheet `News` dan sinkronisasi relasional dengan kolom `Report id` pada sheet `Statements`.
-- **FR-02.2 (Deteksi Jam Publikasi Default `00:00` untuk Akurasi *Cutoff*):**
-  - Sistem memeriksa kolom `Date`. Apabila jam publikasi bernilai **`00:00`** (nilai *default* sistem Newstensity saat berita tidak memiliki jam tayang), sistem otomatis memberikan penanda **`Flag_Cutoff_00` = True** agar analis dapat memvalidasi kesesuaiannya dengan batas *cutoff* harian.
-- **FR-02.3 (Enrichment Atribut Media: *Newswire vs. Media Bazar*, *Custom Media Tier* Klien, & *Hypestat*):**
-  - Sistem memvalidasi dan mengelompokkan atribut **`Media Type Detail`** untuk membedakan antara **Newswire**, **Media Bazar**, dan media organik/arus utama. Berita yang teridentifikasi sebagai **Newswire** otomatis ditandai sebagai **`Takeout`** dengan alasan `"Takeout - Newswire"`.
-  - Sistem mendukung tabel referensi master media di SQLite (`media_master`) yang menyimpan **`tier_bino`** (standar Binokular), **`client_custom_tier`** (aturan tier khusus klien seperti **`TIER BNI`** dari 13.000+ daftar media, di mana misal `beritasatu.com` bernilai Tier 1 di Binokular tetapi Tier 2 di BNI), serta estimasi nilai/trafik **Hypestat**, sehingga menggantikan kebutuhan VLOOKUP manual berulang di Excel.
+- **FR-02.1 (Deduplikasi Berbasis `Normalized URL` & *Same-Media Content*, serta Relasi `ID` $\leftrightarrow$ `Statements`):**
+  - Karena `ID` hasil *crawling* Newstensity pada dasarnya sudah unik per baris (0 duplikat `ID` dalam 1 file ekspor), **deteksi duplikasi utama dilakukan melalui**: (1) **`Normalized URL`** yang sama (setelah menghapus `?utm_*`, `?page=*`, dan menyamakan `m.`/`www.`), serta (2) pada **`Media Name` yang sama**, apabila **`Title` $\ge 90\%$ AND `Content` $\ge 90\%$** mirip (*syarat ganda agar tidak salah membuang berita bersambung atau update angka*).
+  - Kolom **`ID`** berperan sebagai *Primary Key* untuk sinkronisasi relasional dengan kolom `Report id` pada sheet `Statements`, penguncian pasangan `Media Name` & `Page/URL`, serta *safety check* deduplikasi lintas file saat menggabungkan beberapa penarikan (*Daily* $\rightarrow$ *Monthly*).
+- **FR-02.2 (Pemisahan `Date`/`Time`, Filter *Cutoff* Jam Otomatis, & Deteksi Jam Default `00:00`):**
+  - Sistem otomatis memecah kolom `Date` mentah (`YYYY-MM-DD HH:MM`) menjadi dua kolom terpisah: **`Date`** dan **`Time`**.
+  - Sistem menyediakan parameter **Tanggal & Jam *Cutoff*** (diinput analis melalui Web UI, misal `19 Nov 2026 15:00 WIB`) untuk otomatis menyaring/menandai berita yang terbit melewati jam *cutoff* secara deterministik (0 token AI).
+  - Apabila komponen jam bernilai **`00:00`** (nilai *default* sistem Newstensity saat berita tidak memiliki jam tayang), sistem otomatis memberikan penanda **`Flag_Cutoff_00` = True** agar analis dapat memvalidasi kesesuaiannya dengan batas *cutoff*.
+- **FR-02.3 (Pre-Filter Pola *Spam* SEO/Iklan & Enrichment Atribut Media):**
+  - **Pre-Filter Regex Pola *Spam* Nyata (0 Token AI):** Berdasarkan audit *raw data* riil, Python otomatis menandai (`Status_Takeout = Takeout` + `Alasan_Spam`) berita koran berawalan **`"Iklan - ..."`** serta artikel SEO/*evergreen* rutin yang dikonfigurasi pada `config.yaml` (contoh perbankan: *"Tabel Angsuran KUR"*, *"Syarat Pengajuan KUR"*, *"Saldo KKS PKH BPNT"*).
+  - Sistem memvalidasi dan mengelompokkan atribut **`Media Type Detail`** untuk membedakan antara **Newswire**, **Media Bazar**, dan media organik/arus utama. Berita yang teridentifikasi sebagai **Newswire** otomatis ditandai sebagai **`Takeout`** dengan alasan `"Takeout - Newswire"` (dapat diatur `true/false` per klien di `config.yaml`).
+  - Sistem mendukung tabel referensi master media di SQLite (`media_master`) yang menyimpan **`tier_bino`** (standar Binokular), **`client_custom_tier`** (aturan tier khusus klien seperti **`TIER BNI`** dari 13.000+ daftar media, di mana misal `beritasatu.com` bernilai Tier 1 di Binokular tetapi Tier 2 di BNI), serta estimasi nilai/trafik **Hypestat**.
 - **FR-02.4 (Penandaan `Takeout`, `Alasan_Spam`, Cek Silang `Req Upload`/`Takedown`, & Sinkronisasi Historis hingga *Monthly Report*):**
   - Berita yang masuk kategori *spam*, *newswire*, iklan klien, maupun **berita negatif sensitif yang di-*takeout* / *takedown* (atau tautannya menjadi *invalid/404*)** tidak dihapus tanpa jejak, melainkan dipisahkan/diberi status **`Status_Takeout = Takeout`** dan wajib memiliki isi pada kolom **`Alasan_Spam`**.
   - Sistem mendukung pencocokan otomatis (*URL matching*) terhadap daftar link kiriman klien (seperti daftar **`Req Upload`** berita rilis/counter-narrative atau daftar **`Takedown` / moderasi**) terhadap sheet `News`.
@@ -192,12 +197,12 @@ Berdasarkan referensi *output* riil analis (studi kasus BNI Jember), sistem meng
 
 ### FR-06: Local Web UI (Next.js + FastAPI) & Interactive Excel QC Assistant
 Untuk mempermudah pengoperasian harian oleh analis non-teknis tanpa harus membuka terminal atau mengedit file `config.yaml` secara manual:
-- **FR-06.1 (Upload & Live Batch Progress):** Antarmuka Next.js menyediakan *drag-and-drop* upload `.xls with Statements`, pemilihan profil klien, serta *progress bar real-time* per *batch* melalui **Server-Sent Events (SSE)** dari FastAPI.
+- **FR-06.1 (Upload, Input *Cutoff*, & Live Batch Progress):** Antarmuka Next.js menyediakan *drag-and-drop* upload `.xls with Statements`, pemilihan profil klien, input **Tanggal & Jam *Cutoff*** (misal `15:00 WIB`), serta *progress bar real-time* per *batch* melalui **Server-Sent Events (SSE)** dari FastAPI.
 - **FR-06.2 (Interactive Spreadsheet QC Table):** Menampilkan hasil pengolahan dalam tabel interaktif mirip Excel (`AG Grid Community` / `@tanstack/react-table`) dengan **3 tab filter cepat**:
   1. **Tab *"Perlu Dicek (`00:00`)"***: Menyaring khusus berita dengan `Flag_Cutoff_00` agar analis dapat memvalidasi batas *cutoff* harian.
   2. **Tab *"Takeout & Alasan Spam"***: Memungkinkan analis meninjau alasan *takeout*, mengembalikan berita ke *Clean*, atau menandai berita negatif sensitif baru untuk langsung disinkronkan ke SQLite `takeout_registry` bulanan.
   3. **Tab *"Berita Rilis & Spokesperson (`0`)"***: Menyaring berita rilis yang narasumbernya bernilai `0` untuk *double check* cepat.
-- **FR-06.3 (Ad-Hoc Column Form & Client Export Column Picker):** Analis dapat menambah/mengubah kolom *ad-hoc* (`Kluster`, `Paid/Earned`) lewat formulir UI, memilih kolom mana saja yang diekspor khusus untuk file Excel klien (*Column Picker*), lalu mengunduh **Output 1 (`.xlsx`)** dan **Output 2 (`.pptx` / `.pdf`)** dengan satu klik.
+- **FR-06.3 (Ad-Hoc Column Form & Client Export Column Picker):** Analis dapat menambah/mengubah kolom *ad-hoc* (`Kluster`, `Paid/Earned`) lewat formulir UI, memilih kolom mana saja yang diekspor khusus untuk file Excel klien (*Column Picker*), lalu mengunduh **Output 1 (`.xlsx`)**, **Output 2 (`.pptx` / `.pdf`)**, serta menyalin/mengunduh **Output 3 (Teks *Wording*)** dengan satu klik.
 
 ---
 
@@ -207,7 +212,7 @@ Untuk mempermudah pengoperasian harian oleh analis non-teknis tanpa harus membuk
 
 | Nama Kolom | Kategori | Peran & Aturan dalam Pipeline Otomasi |
 | :--- | :--- | :--- |
-| **`ID`** | Standar (PK) | Kunci unik deduplikasi baris, referensi `Report id` di `Statements`, dan kunci sinkronisasi `takeout_registry` bulanan. |
+| **`ID`** | Standar (PK) | *Primary Key* unik per baris untuk relasi `Report id` di `Statements`, pengunci pasangan `Media Name`/`Page/URL`, sinkronisasi `takeout_registry` bulanan, serta pengaman saat penggabungan multi-file. |
 | **`Title`** & **`Content`** | Standar | Input utama analisis AI: evaluasi ulang `Newstrends`, deteksi iklan/spam, koreksi sentimen, dan ekstraksi *fallback* `Spokesperson` + `Jabatan`. |
 | **`Date`** | Standar | Diekstrak tanggal & jamnya. Jika jam bernilai **`00:00`**, otomatis ditandai pada kolom `Flag_Cutoff_00` untuk kewaspadaan batas *cutoff*. |
 | **`Media Name`** & **`Page/URL`** | Standar | Dikunci secara deterministik oleh Python berdasarkan `ID` (tidak boleh ditulis ulang oleh AI) agar tidak pernah terjadi *mismatch* Nama Media dan URL. |
