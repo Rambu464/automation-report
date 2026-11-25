@@ -16,6 +16,8 @@ class Pass1RowOutput(BaseModel):
     status_takeout: Literal["Keep", "Takeout"] = "Keep"
     alasan_spam: str = ""
     sentiment: Literal["positive", "neutral", "negative"] = "neutral"
+    perlu_koreksi: bool = False
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     draft_newstrend: str = ""
     nama_isu: str = ""
     content_type: Literal["Rilis", "Organik"] = "Organik"

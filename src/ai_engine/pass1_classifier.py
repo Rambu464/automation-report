@@ -39,6 +39,50 @@ def _make_cache_key(report_id: str, config_hash: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _dedupe_lines(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        clean = item.strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            out.append(clean)
+    return out
+
+
+def _build_sentiment_brief_block(config: ClientConfig) -> str:
+    sb = config.sentiment_brief
+    if not sb.has_content():
+        return ""
+    parts: list[str] = ["\n=== PANDUAN SENTIMEN KHUSUS KLIEN (POV WAJIB DIPATUHI) ==="]
+    if sb.deskripsi:
+        parts.append(f"Deskripsi: {sb.deskripsi}")
+    if sb.analyst_verdict:
+        parts.append(f"\nPrinsip Utama (Analyst Verdict):\n{sb.analyst_verdict.strip()}")
+    if sb.negative_guidelines:
+        parts.append(
+            "\nAturan NEGATIVE:\n"
+            + "\n".join(f"- {g}" for g in _dedupe_lines(sb.negative_guidelines))
+        )
+    if sb.neutral_guidelines:
+        parts.append(
+            "\nAturan NEUTRAL:\n"
+            + "\n".join(f"- {g}" for g in _dedupe_lines(sb.neutral_guidelines))
+        )
+    if sb.positive_guidelines:
+        parts.append(
+            "\nAturan POSITIVE:\n"
+            + "\n".join(f"- {g}" for g in _dedupe_lines(sb.positive_guidelines))
+        )
+    if sb.output_rules:
+        parts.append(
+            "\nAturan Output Koreksi:\n"
+            + "\n".join(f"- {r}" for r in _dedupe_lines(sb.output_rules))
+        )
+    parts.append("=== AKHIR PANDUAN SENTIMEN KHUSUS KLIEN ===\n")
+    return "\n".join(parts)
+
+
 def _build_pass1_system_prompt(config: ClientConfig) -> str:
     exclusions = "\n".join(
         f"- {rule}" for rule in config.takeout_rules.client_specific_exclusions
@@ -61,14 +105,18 @@ def _build_pass1_system_prompt(config: ClientConfig) -> str:
             "Jika berita fokus membahas kompetitor tersebut, evaluasi sentimen berdasarkan POV kompetitor tersebut.\n"
         )
 
+    brief_block = _build_sentiment_brief_block(config)
     hints = config.newstrend_rules.sentiment_wording_hints
     return (
         f"Anda adalah Analis Media Monitoring Senior untuk klien {config.client_name} (`{config.client_id}`).\n"
-        "Tugas Anda menganalisis micro-batch berita (JSON array) dan mengembalikan JSON objek dengan key `items`.\n\n"
+        "Tugas Anda menganalisis micro-batch berita (JSON array) dan mengembalikan JSON objek dengan key `items`.\n"
+        f"{brief_block}\n"
         "Aturan Klasifikasi:\n"
         f"1. `status_takeout`: 'Keep' atau 'Takeout'. Tandai 'Takeout' + isi `alasan_spam` jika termasuk:\n{exclusions}\n"
-        "2. `sentiment`: 'positive', 'neutral', atau 'negative' sesuai POV klien (evaluasi dari isi snippet, bukan judul saja).\n"
-        f"3. `draft_newstrend`: Kalimat aktif maks. {config.newstrend_rules.max_words} kata sesuai isi berita.\n"
+        "2. `sentiment`: 'positive', 'neutral', atau 'negative' sesuai POV klien (patuhi Panduan Sentimen Khusus Klien di atas jika tersedia). "
+        "Isi `perlu_koreksi` (true jika berbeda dari `orig_sentiment`) dan `confidence` (0.0-1.0).\n"
+        f"3. `draft_newstrend`: Kalimat aktif maks. {config.newstrend_rules.max_words} kata sesuai topik utama pada Title & Content "
+        "(prioritaskan konsistensi Newstrend untuk topik utama sama; pisahkan jika topik utama berbeda walau entitas/tema sama).\n"
         f"   - Negative: {hints.negative}\n"
         f"   - Neutral: {hints.neutral}\n"
         f"   - Positive: {hints.positive}\n"
@@ -163,6 +211,9 @@ async def run_pass1_classification(
                         "title": str(df.at[df_idx, "Title"]),
                         "snippet": snippet,
                         "media_type": str(df.at[df_idx, "Media Type"]),
+                        "orig_sentiment": str(df.at[df_idx, "Sentiment"])
+                        if "Sentiment" in df.columns
+                        else "",
                         "has_stmt": bool(df.at[df_idx, "Has_Statement"])
                         if "Has_Statement" in df.columns
                         else False,

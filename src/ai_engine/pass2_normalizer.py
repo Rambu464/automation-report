@@ -19,12 +19,36 @@ def _issue_hash(client_id: str, canonical_nama_isu: str) -> str:
     return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:24]
 
 
+def _build_newstrend_brief_block(config: ClientConfig) -> str:
+    nb = config.newstrend_brief
+    lines = [
+        "\n=== PANDUAN PEMBUATAN & CLUSTERING NEWSTREND (ALL CLIENT) ===",
+        nb.general_guideline.strip(),
+        "",
+        nb.additional_information.strip(),
+    ]
+    if nb.examples:
+        lines.append("\nContoh Pola Clustering:")
+        for ex in nb.examples:
+            lines.append(f"- Konteks: {ex.context}\n  Pola: {ex.pattern}")
+    lines.append("=== AKHIR PANDUAN NEWSTREND ===\n")
+    return "\n".join(lines)
+
+
 def _build_pass2_system_prompt(config: ClientConfig) -> str:
     hints = config.newstrend_rules.sentiment_wording_hints
+    positive_exception = ""
+    if config.sentiment_brief.has_content():
+        positive_exception = (
+            "   (PENGECUALIAN BRIEF KLIEN: Jangan ubah berita yang sudah dinilai `positive` oleh Pass 1 "
+            "karena fokusnya klarifikasi resmi, bantahan, dukungan proses hukum, atau mitigasi klien.)\n"
+        )
+    nt_brief = _build_newstrend_brief_block(config)
     return (
         f"Anda adalah Editor Senior Media Monitoring untuk klien {config.client_name}.\n"
         "Tugas Anda (Pass 2) adalah menstandardisasi daftar `nama_isu` dan `draft_newstrend` hasil Pass 1:\n"
-        "1. Gabungkan variasi redaksi yang membahas peristiwa sama ke satu `canonical_nama_isu` & `canonical_newstrend` yang seragam.\n"
+        f"{nt_brief}"
+        "1. Gabungkan variasi redaksi yang membahas topik utama sama ke satu `canonical_nama_isu` & `canonical_newstrend` yang seragam (jangan gabungkan jika topik utamanya berbeda).\n"
         f"2. Pastikan `canonical_newstrend` berbentuk kalimat aktif maksimal {config.newstrend_rules.max_words} kata:\n"
         f"   - Negative: {hints.negative}\n"
         f"   - Neutral: {hints.neutral}\n"
@@ -32,6 +56,7 @@ def _build_pass2_system_prompt(config: ClientConfig) -> str:
         "3. KONSISTENSI ISU NEGATIF: Jika suatu isu cocok dengan daftar `historical_negative_issues`, "
         "WAJIB kunci `final_sentiment = 'negative'`, gunakan `canonical_newstrend` yang konsisten, "
         "dan set `is_negative_issue = true`.\n"
+        f"{positive_exception}"
         "4. Untuk isu negatif baru, set `is_negative_issue = true`.\n"
         "Kembalikan HANYA JSON valid: {\"mappings\": [{raw_nama_isu, canonical_nama_isu, canonical_newstrend, final_sentiment, is_negative_issue}]}."
     )

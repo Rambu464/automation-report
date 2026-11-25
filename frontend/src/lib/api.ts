@@ -83,11 +83,38 @@ export interface AdhocColumn {
   description: string;
 }
 
+export interface SentimentBriefData {
+  brief_uuid?: string;
+  deskripsi?: string;
+  analyst_verdict: string;
+  negative_guidelines: string[];
+  neutral_guidelines: string[];
+  positive_guidelines: string[];
+  output_rules?: string[];
+}
+
+export interface NewstrendExampleData {
+  context: string;
+  pattern: string;
+}
+
+export interface NewstrendBriefData {
+  brief_uuid?: string;
+  client_name?: string;
+  deskripsi?: string;
+  clustering_method?: string;
+  general_guideline: string;
+  additional_information: string;
+  examples: NewstrendExampleData[];
+}
+
 export interface ClientConfigData {
   client_id: string;
   client_name: string;
   focus_type: "brand_only" | "brand_and_competitor" | "crisis";
   adhoc_columns: AdhocColumn[];
+  sentiment_brief?: SentimentBriefData;
+  newstrend_brief?: NewstrendBriefData;
   [key: string]: unknown;
 }
 

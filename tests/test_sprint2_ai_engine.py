@@ -394,3 +394,29 @@ async def test_full_3pass_ai_engine_cache_cluster_spokesperson_and_negative_memo
     narrative = await pipeline.generate_narrative(sample_payload, config=cfg)
     assert len(narrative.executive_summary) >= 2
     assert "secret-comp-url.com" not in mock_llm.calls[-1]["user_prompt"]
+
+
+def test_bni_sentiment_brief_loaded_and_injected_into_pass1_prompt() -> None:
+    from src.ai_engine.pass1_classifier import _build_pass1_system_prompt
+
+    bni_cfg = load_client_config("bni", clients_dir=Path("clients"))
+    assert bni_cfg.sentiment_brief.has_content() is True
+    assert len(bni_cfg.sentiment_brief.negative_guidelines) >= 15
+    assert len(bni_cfg.sentiment_brief.positive_guidelines) >= 15
+
+    prompt = _build_pass1_system_prompt(bni_cfg)
+    assert "PANDUAN SENTIMEN KHUSUS KLIEN" in prompt
+    assert "zero tolerance" in prompt.lower()
+
+    # Modifying sentiment brief MUST change config_version_hash (invalidating stale AI cache)
+    old_hash = bni_cfg.config_version_hash()
+    bni_cfg.sentiment_brief.deskripsi = "Koreksi Sentimen BNI v2"
+    assert bni_cfg.config_version_hash() != old_hash
+
+    # Global Newstrend Creation Brief ("All Client") MUST be active & injected in Pass 2 prompt
+    from src.ai_engine.pass2_normalizer import _build_pass2_system_prompt
+
+    assert len(bni_cfg.newstrend_brief.examples) == 6
+    p2_prompt = _build_pass2_system_prompt(bni_cfg)
+    assert "PANDUAN PEMBUATAN & CLUSTERING NEWSTREND" in p2_prompt
+    assert "pemberdayaan masyarakat dan pesantren" in p2_prompt

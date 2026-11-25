@@ -76,6 +76,79 @@ class OutputTemplatesConfig(BaseModel):
     wording_include_sosmed_block: bool = False
 
 
+class SentimentBriefConfig(BaseModel):
+    """Detailed client-specific POV & sentiment classification guidelines (cached in System Prompt)."""
+
+    brief_uuid: str = ""
+    deskripsi: str = ""
+    analyst_verdict: str = ""
+    negative_guidelines: list[str] = Field(default_factory=list)
+    neutral_guidelines: list[str] = Field(default_factory=list)
+    positive_guidelines: list[str] = Field(default_factory=list)
+    output_rules: list[str] = Field(default_factory=list)
+
+    def has_content(self) -> bool:
+        return bool(
+            self.analyst_verdict.strip()
+            or self.negative_guidelines
+            or self.neutral_guidelines
+            or self.positive_guidelines
+        )
+
+
+class NewstrendExampleConfig(BaseModel):
+    context: str
+    pattern: str
+
+
+class NewstrendBriefConfig(BaseModel):
+    """Global (All Client) or per-client Newstrend clustering & creation guidelines."""
+
+    brief_uuid: str = "854109f8-cfe6-4fc7-a231-1649545e9d9f"
+    client_name: str = "All Client"
+    deskripsi: str = "Pembuatan newstrend secara otomatis"
+    clustering_method: str = "general"
+    general_guideline: str = (
+        "Kelompokkan berita berdasarkan kemiripan topik utama pada Title dan Content.\n"
+        "Berita yang membahas topik utama yang sama harus menggunakan Newstrend yang sama.\n"
+        "Perbedaan pilihan kata, susunan kalimat, atau gaya bahasa tidak menjadi alasan untuk membuat Newstrend yang berbeda apabila topik utama sama.\n"
+        "Jangan mengelompokkan berita yang hanya memiliki entitas, isu umum, tema, sektor, atau konteks yang sama apabila topik utama yang dibahas berbeda."
+    )
+    additional_information: str = (
+        "Newstrend berfungsi sebagai identifier untuk mengelompokkan berita dengan topik utama yang sama.\n"
+        "Prioritaskan konsistensi Newstrend daripada variasi wording untuk berita yang memiliki topik utama yang sama.\n"
+        "Perubahan atau penambahan informasi dalam berita tidak memerlukan Newstrend baru apabila topik utama tetap sama."
+    )
+    examples: list[NewstrendExampleConfig] = Field(
+        default_factory=lambda: [
+            NewstrendExampleConfig(
+                context="Beberapa berita memiliki kemiripan isi pada Title dan Content serta membahas topik utama yang sama dengan pilihan kata yang berbeda.",
+                pattern="Gunakan Newstrend yang sama untuk seluruh berita.",
+            ),
+            NewstrendExampleConfig(
+                context="Beberapa berita memiliki informasi tambahan atau perkembangan baru, tetapi tetap membahas topik utama yang sama.",
+                pattern="Gunakan Newstrend yang sama untuk seluruh berita.",
+            ),
+            NewstrendExampleConfig(
+                context="Beberapa berita memiliki kemiripan pada Title, tetapi Content membahas topik utama yang berbeda.",
+                pattern="Gunakan Newstrend yang berbeda untuk setiap topik utama.",
+            ),
+            NewstrendExampleConfig(
+                context="Beberapa berita memiliki kemiripan isi pada Content, tetapi masing-masing membahas peristiwa atau topik utama yang berbeda.",
+                pattern="Gunakan Newstrend yang berbeda untuk setiap topik utama.",
+            ),
+            NewstrendExampleConfig(
+                context="Beberapa berita merupakan pembaruan dari berita sebelumnya dan tetap membahas topik utama yang sama.",
+                pattern="Gunakan Newstrend yang sama untuk seluruh berita.",
+            ),
+            NewstrendExampleConfig(
+                context="Beberapa berita sama-sama membahas pemberdayaan masyarakat dan pesantren, tetapi membahas program, peristiwa, atau isu utama yang berbeda.",
+                pattern="Gunakan Newstrend yang berbeda untuk setiap topik utama.",
+            ),
+        ]
+    )
+
+
 class ClientConfig(BaseModel):
     """Full client configuration parsed from `clients/<client_id>/config.yaml`."""
 
@@ -91,6 +164,8 @@ class ClientConfig(BaseModel):
     adhoc_columns: list[AdhocColumnConfig] = Field(default_factory=list)
     competitors: CompetitorsConfig = Field(default_factory=CompetitorsConfig)
     output_templates: OutputTemplatesConfig = Field(default_factory=OutputTemplatesConfig)
+    sentiment_brief: SentimentBriefConfig = Field(default_factory=SentimentBriefConfig)
+    newstrend_brief: NewstrendBriefConfig = Field(default_factory=NewstrendBriefConfig)
 
     def config_version_hash(self) -> str:
         """Deterministic short hash of AI-relevant config fields for `ai_batch_cache` keys."""
@@ -102,6 +177,8 @@ class ClientConfig(BaseModel):
                 "media_and_spokesperson",
                 "adhoc_columns",
                 "competitors",
+                "sentiment_brief",
+                "newstrend_brief",
             }
         )
         serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
