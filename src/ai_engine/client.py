@@ -101,9 +101,8 @@ class MultiModelLLMClient:
 
     def _build_default_chain(self) -> list[ProviderSpec]:
         s = self.settings
-        chain: list[ProviderSpec] = []
-        if s.deepseek_api_key:
-            chain.append(
+        builders = {
+            "deepseek": lambda: (
                 ProviderSpec(
                     name="deepseek",
                     kind="openai_compat",
@@ -111,9 +110,10 @@ class MultiModelLLMClient:
                     base_url=s.deepseek_base_url,
                     model=s.deepseek_primary_model,
                 )
-            )
-        if s.openrouter_api_key:
-            chain.append(
+                if s.deepseek_api_key.strip()
+                else None
+            ),
+            "openrouter": lambda: (
                 ProviderSpec(
                     name="openrouter",
                     kind="openai_compat",
@@ -121,9 +121,10 @@ class MultiModelLLMClient:
                     base_url=s.openrouter_base_url,
                     model=s.openrouter_model,
                 )
-            )
-        if s.groq_api_key:
-            chain.append(
+                if s.openrouter_api_key.strip()
+                else None
+            ),
+            "groq": lambda: (
                 ProviderSpec(
                     name="groq",
                     kind="openai_compat",
@@ -131,16 +132,27 @@ class MultiModelLLMClient:
                     base_url=s.groq_base_url,
                     model=s.groq_model,
                 )
-            )
-        if s.gemini_api_key:
-            chain.append(
+                if s.groq_api_key.strip()
+                else None
+            ),
+            "gemini": lambda: (
                 ProviderSpec(
                     name="gemini",
                     kind="gemini",
                     api_key=s.gemini_api_key,
                     model=s.gemini_model,
                 )
-            )
+                if s.gemini_api_key.strip()
+                else None
+            ),
+        }
+        chain: list[ProviderSpec] = []
+        for pid in s.get_provider_order():
+            builder = builders.get(pid)
+            if builder is not None:
+                spec = builder()
+                if spec is not None:
+                    chain.append(spec)
         return chain
 
     async def _call_openai_compat(

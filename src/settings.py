@@ -36,6 +36,7 @@ class AppSettings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
 
     # AI Engine Tuning
+    ai_provider_order: str = "deepseek,openrouter,groq,gemini"
     ai_batch_size: int = 30
     ai_max_concurrency: int = 5
     ai_max_retries: int = 2
@@ -49,6 +50,19 @@ class AppSettings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     next_public_api_url: str = "http://127.0.0.1:8000"
+
+    def get_provider_order(self) -> list[str]:
+        """Return validated, deduplicated fallback order for the 4 Cloud AI providers."""
+        allowed = ("deepseek", "openrouter", "groq", "gemini")
+        parsed: list[str] = []
+        for raw in (self.ai_provider_order or "").split(","):
+            pid = raw.strip().lower()
+            if pid in allowed and pid not in parsed:
+                parsed.append(pid)
+        for pid in allowed:
+            if pid not in parsed:
+                parsed.append(pid)
+        return parsed
 
 
 @lru_cache(maxsize=1)

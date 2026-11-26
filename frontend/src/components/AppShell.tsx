@@ -60,7 +60,7 @@ export default function AppShell({
   clientId = "",
 }: AppShellProps) {
   const router = useRouter();
-  const [configDrawerOpen, setConfigDrawerOpen] = useState<boolean>(true);
+  const [configDrawerOpen, setConfigDrawerOpen] = useState<boolean>(false);
 
   const [clients, setClients] = useState<string[]>(["bni", "bri"]);
   const [selectedClient, setSelectedClient] = useState<string>("bni");
@@ -506,80 +506,31 @@ export default function AppShell({
           ) : (
             /* Active Project Workspace (URL: /projects/[projectId] or /projects/[projectId]/[step]) */
             <div className="mx-auto max-w-7xl space-y-4">
-              {/* Single-source Document Canvas Tabs backed by Real Routes */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
+              {/* When inside a step view, show top-left back-to-canvas pill (+ Export shortcut on QC) */}
+              {step !== "canvas" && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
                     onClick={() => goProject(activeProject.project_id, "canvas")}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold transition ${
-                      step === "canvas"
-                        ? "border-zinc-300 bg-white text-zinc-900 shadow-2xs"
-                        : "border-transparent bg-zinc-200/50 text-zinc-600 hover:bg-white/70"
-                    }`}
+                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-zinc-800 shadow-2xs transition hover:border-blue-300 hover:bg-blue-50/40"
                   >
+                    <ArrowLeft className="h-3.5 w-3.5 text-zinc-500" />
                     <GitBranch className="h-3.5 w-3.5 text-blue-600" />
                     Workflow Canvas
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => goProject(activeProject.project_id, "upload")}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold transition ${
-                      step === "upload"
-                        ? "border-zinc-300 bg-white text-zinc-900 shadow-2xs"
-                        : "border-transparent bg-zinc-200/50 text-zinc-600 hover:bg-white/70"
-                    }`}
-                  >
-                    <UploadCloud className="h-3.5 w-3.5 text-blue-600" />
-                    Upload &amp; Proses
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!qcData}
-                    onClick={() => goProject(activeProject.project_id, "qc")}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                      step === "qc"
-                        ? "border-zinc-300 bg-white text-zinc-900 shadow-2xs"
-                        : "border-transparent bg-zinc-200/50 text-zinc-600 hover:bg-white/70"
-                    }`}
-                  >
-                    <Table2 className="h-3.5 w-3.5 text-emerald-600" />
-                    Tabel QC Interaktif
-                    {qcData && (
-                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-700">
-                        {qcData.tab_counts.all}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!qcData}
-                    onClick={() => goProject(activeProject.project_id, "export")}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                      step === "export"
-                        ? "border-zinc-300 bg-white text-zinc-900 shadow-2xs"
-                        : "border-transparent bg-zinc-200/50 text-zinc-600 hover:bg-white/70"
-                    }`}
-                  >
-                    <Download className="h-3.5 w-3.5 text-sky-600" />
-                    Ekspor 3 Output
-                  </button>
+                  {step === "qc" && qcData && (
+                    <button
+                      type="button"
+                      onClick={() => goProject(activeProject.project_id, "export")}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Lanjut ke Ekspor →
+                    </button>
+                  )}
                 </div>
-
-                {step !== "canvas" && (
-                  <button
-                    type="button"
-                    onClick={() => goProject(activeProject.project_id, "canvas")}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" />
-                    Kembali ke Kanvas
-                  </button>
-                )}
-              </div>
+              )}
 
               {step === "canvas" && (
                 <WorkflowCanvas

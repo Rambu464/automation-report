@@ -559,3 +559,19 @@ async def test_ai_batch_cache_prompt_model_invalidation_and_human_qc_precedence(
     assert out3.loc["ROW-AI-001", "Sentiment"] == "positive"
     assert out3.loc["ROW-QC-002", "Sentiment"] == "negative"
     assert out3.loc["ROW-QC-002", "Newstrends"] == "Koreksi Analis: Keluhan Transaksi BRImo"
+
+
+def test_custom_ai_provider_order_controls_fallback_chain_and_active_model() -> None:
+    from src.ai_engine.pass1_classifier import resolve_active_model_name
+    from src.settings import AppSettings
+
+    settings = AppSettings(
+        deepseek_api_key="ds-key",
+        openrouter_api_key="or-key",
+        groq_api_key="gr-key",
+        gemini_api_key="",
+        ai_provider_order="groq,deepseek,openrouter,gemini",
+    )
+    client = MultiModelLLMClient(settings=settings)
+    assert [p.name for p in client.providers] == ["groq", "deepseek", "openrouter"]
+    assert resolve_active_model_name(settings=settings) == f"groq:{settings.groq_model}"

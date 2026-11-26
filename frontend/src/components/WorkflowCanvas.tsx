@@ -14,6 +14,7 @@ import {
   ChevronUp,
   Terminal,
   ArrowUpRight,
+  GitBranch,
 } from "lucide-react";
 import { ProjectItem, QCResponse } from "@/lib/api";
 
@@ -62,6 +63,14 @@ export default function WorkflowCanvas({
     <div className="space-y-4">
       {/* Main Interactive Node Canvas */}
       <div className="relative overflow-x-auto rounded-2xl border border-zinc-200 bg-white/75 p-6 shadow-xs backdrop-blur-[1px]">
+        {/* Top-Left Canvas Badge Pill inside the Canvas */}
+        <div className="mb-3 sm:absolute sm:left-5 sm:top-5 sm:mb-0">
+          <span className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-zinc-800 shadow-2xs">
+            <GitBranch className="h-3.5 w-3.5 text-blue-600" />
+            Workflow Canvas
+          </span>
+        </div>
+
         <div className="mx-auto flex min-w-[680px] max-w-4xl flex-col items-center">
           {/* NODE 1: TRIGGER — Input Raw Data */}
           <div className="flex flex-col items-center">
@@ -131,7 +140,10 @@ export default function WorkflowCanvas({
                   </div>
                 </div>
               </div>
-              {statusPill(isCompleted)}
+              <div className="flex items-center gap-1.5">
+                {statusPill(isCompleted)}
+                <ArrowUpRight className="h-4 w-4 text-zinc-300 transition group-hover:text-sky-600" />
+              </div>
             </div>
             {meta ? (
               <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-zinc-50 p-2 text-center text-[11px]">
@@ -185,7 +197,10 @@ export default function WorkflowCanvas({
                   </div>
                 </div>
               </div>
-              {statusPill(isCompleted)}
+              <div className="flex items-center gap-1.5">
+                {statusPill(isCompleted)}
+                <ArrowUpRight className="h-4 w-4 text-zinc-300 transition group-hover:text-sky-600" />
+              </div>
             </div>
             {sent ? (
               <div className="mt-3 flex items-center justify-between rounded-xl bg-purple-50/60 px-3 py-2 text-[11px]">

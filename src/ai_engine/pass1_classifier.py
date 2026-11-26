@@ -62,15 +62,19 @@ def resolve_active_model_name(
                 return str(p_model)
 
     if settings is not None:
-        if settings.deepseek_api_key.strip():
-            return f"deepseek:{settings.deepseek_primary_model}"
-        if settings.openrouter_api_key.strip():
-            return f"openrouter:{settings.openrouter_model}"
-        if settings.groq_api_key.strip():
-            return f"groq:{settings.groq_model}"
-        if settings.gemini_api_key.strip():
-            return f"gemini:{settings.gemini_model}"
-        return f"deepseek:{settings.deepseek_primary_model}"
+        provider_info = {
+            "deepseek": (settings.deepseek_api_key.strip(), settings.deepseek_primary_model),
+            "openrouter": (settings.openrouter_api_key.strip(), settings.openrouter_model),
+            "groq": (settings.groq_api_key.strip(), settings.groq_model),
+            "gemini": (settings.gemini_api_key.strip(), settings.gemini_model),
+        }
+        order = settings.get_provider_order()
+        for pid in order:
+            key, mdl = provider_info[pid]
+            if key:
+                return f"{pid}:{mdl}"
+        first_pid = order[0]
+        return f"{first_pid}:{provider_info[first_pid][1]}"
 
     return "default"
 

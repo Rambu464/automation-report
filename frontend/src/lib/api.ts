@@ -185,6 +185,7 @@ export interface AIProviderStatus {
 
 export interface SystemAIStatus {
   providers: AIProviderStatus[];
+  provider_order?: string[];
   ai_batch_size: number;
   ai_max_concurrency: number;
   ai_max_retries: number;
@@ -201,6 +202,7 @@ export async function updateSystemAISettings(payload: {
   openrouter_api_key?: string;
   groq_api_key?: string;
   gemini_api_key?: string;
+  ai_provider_order?: string[];
   ai_batch_size?: number;
   ai_max_concurrency?: number;
 }): Promise<SystemAIStatus> {

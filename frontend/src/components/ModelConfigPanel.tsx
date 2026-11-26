@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Cpu,
+  Check,
   CheckCircle2,
-  Circle,
   Save,
   ArrowUpRight,
   KeyRound,
   Building2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   SystemAIStatus,
@@ -28,13 +30,14 @@ export default function ModelConfigPanel({
   onGoClientConfig,
 }: ModelConfigPanelProps) {
   const [aiStatus, setAiStatus] = useState<SystemAIStatus | null>(null);
-  const [preferredProvider, setPreferredProvider] = useState<string>("deepseek");
-  const [useProPass3, setUseProPass3] = useState<boolean>(false);
-  const [useCache, setUseCache] = useState<boolean>(true);
   const [batchSize, setBatchSize] = useState<number>(30);
   const [concurrency, setConcurrency] = useState<number>(5);
   const [saving, setSaving] = useState<boolean>(false);
+  const [reordering, setReordering] = useState<boolean>(false);
+  const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
+  const [orderMsg, setOrderMsg] = useState<string>("");
   const [savedMsg, setSavedMsg] = useState<string>("");
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchSystemAIStatus()
@@ -42,11 +45,42 @@ export default function ModelConfigPanel({
         setAiStatus(status);
         setBatchSize(status.ai_batch_size);
         setConcurrency(status.ai_max_concurrency);
-        const firstActive = status.providers.find((p) => p.configured);
-        if (firstActive) setPreferredProvider(firstActive.id);
       })
       .catch(() => setAiStatus(null));
   }, []);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const handleSelectPrimary = async (providerId: string) => {
+    if (!aiStatus || reordering) return;
+    setDropdownOpen(false);
+    const picked = aiStatus.providers.find((p) => p.id === providerId);
+    if (!picked) return;
+    const rest = aiStatus.providers.filter((p) => p.id !== providerId);
+    const nextProviders = [picked, ...rest];
+    const nextOrder = nextProviders.map((p) => p.id);
+
+    setAiStatus({ ...aiStatus, providers: nextProviders, provider_order: nextOrder });
+    setReordering(true);
+    setOrderMsg("");
+    try {
+      const updated = await updateSystemAISettings({ ai_provider_order: nextOrder });
+      setAiStatus(updated);
+      setOrderMsg(`Primary diubah ke ${picked.name}.`);
+    } catch {
+      fetchSystemAIStatus().then(setAiStatus).catch(() => null);
+    } finally {
+      setReordering(false);
+    }
+  };
 
   const handleSaveTuning = async () => {
     setSaving(true);
@@ -63,15 +97,17 @@ export default function ModelConfigPanel({
     }
   };
 
-  const configuredCount = aiStatus?.providers.filter((p) => p.configured).length ?? 0;
+  const providers = aiStatus?.providers || [];
+  const configuredCount = providers.filter((p) => p.configured).length;
+  const selectedPrimary = providers[0] || null;
 
   return (
     <div className="space-y-4">
-      {/* Provider Status Overview */}
+      {/* Modern Custom Model Dropdown Selector */}
       <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3.5">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-600">
-            Status Cloud AI
+            Model Cloud AI
           </span>
           <span
             className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -80,81 +116,131 @@ export default function ModelConfigPanel({
                 : "bg-amber-50 text-amber-700"
             }`}
           >
-            {configuredCount > 0 ? `${configuredCount} Provider Aktif` : "Pre-Clean Mode"}
+            {configuredCount > 0 ? `${configuredCount} Aktif` : "Pre-Clean Mode"}
           </span>
         </div>
 
-        <div className="space-y-1.5">
-          {(aiStatus?.providers || []).map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between rounded-lg bg-white px-2.5 py-1.5 text-xs shadow-2xs"
-            >
-              <div className="min-w-0">
-                <div className="truncate font-semibold text-zinc-800">{p.name}</div>
-                <div className="truncate font-mono text-[10px] text-zinc-400">{p.model}</div>
+        <div ref={dropdownRef} className="relative">
+          <button
+            type="button"
+            disabled={reordering || !aiStatus}
+            onClick={() => setDropdownOpen((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-left transition hover:border-blue-400 focus:border-blue-600 focus:outline-none disabled:opacity-60"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-xs font-semibold text-zinc-900">
+                  {selectedPrimary ? selectedPrimary.name : "Memuat model..."}
+                </span>
+                {selectedPrimary && (
+                  <span
+                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                      selectedPrimary.configured
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-zinc-100 text-zinc-500"
+                    }`}
+                  >
+                    {selectedPrimary.configured ? "Aktif" : "Key Kosong"}
+                  </span>
+                )}
               </div>
-              {p.configured ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Aktif
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400">
-                  <Circle className="h-3 w-3" />
-                  Kosong
-                </span>
+              {selectedPrimary && (
+                <div className="truncate font-mono text-[10px] text-zinc-400">
+                  {selectedPrimary.model}
+                </div>
               )}
             </div>
-          ))}
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-zinc-400 transition ${
+                dropdownOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          {/* Popover Menu */}
+          {dropdownOpen && (
+            <div className="absolute left-0 right-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg">
+              <div className="border-b border-zinc-100 px-3 py-2 text-[11px] font-semibold text-zinc-400">
+                Model
+              </div>
+              <div className="divide-y divide-zinc-50 py-1">
+                {providers.map((p, idx) => {
+                  const isSelected = idx === 0;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSelectPrimary(p.id)}
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition hover:bg-zinc-50 ${
+                        isSelected ? "bg-blue-50/40" : ""
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`truncate text-xs ${
+                              isSelected
+                                ? "font-bold text-zinc-900"
+                                : "font-medium text-zinc-700"
+                            }`}
+                          >
+                            {p.name}
+                          </span>
+                          <span
+                            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                              p.configured
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-zinc-100 text-zinc-500"
+                            }`}
+                          >
+                            {p.configured ? "Aktif" : "Kosong"}
+                          </span>
+                        </div>
+                        <div className="truncate font-mono text-[10px] text-zinc-400">
+                          {p.model}
+                        </div>
+                      </div>
+                      {isSelected ? (
+                        <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-zinc-300" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDropdownOpen(false);
+                  onGoSystemSettings();
+                }}
+                className="flex w-full items-center justify-between border-t border-zinc-100 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <KeyRound className="h-3.5 w-3.5 text-zinc-400" />
+                  Kelola API Keys
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-zinc-400">
+          <span>Model lain yang aktif otomatis menjadi fallback.</span>
+          {orderMsg && <span className="font-semibold text-emerald-600">{orderMsg}</span>}
         </div>
       </div>
 
-      {/* Model & Mode Settings */}
+      {/* Batch & Concurrency Tuning */}
       <div className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4">
         <div className="flex items-center gap-2 text-xs font-bold text-zinc-900">
           <Cpu className="h-4 w-4 text-blue-600" />
-          Konfigurasi 3-Pass AI
+          Parameter Batch 3-Pass AI
         </div>
 
-        <div>
-          <label className="mb-1 block text-[11px] font-semibold text-zinc-600">
-            Primary Model (Auto-Fallback Aktif)
-          </label>
-          <select
-            value={preferredProvider}
-            onChange={(e) => setPreferredProvider(e.target.value)}
-            className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:border-blue-600 focus:outline-none"
-          >
-            <option value="deepseek">DeepSeek-Chat (Primary • Termurah)</option>
-            <option value="openrouter">Qwen 2.5 72B (OpenRouter)</option>
-            <option value="groq">Llama 3.3 70B (Groq • Cepat)</option>
-            <option value="gemini">Gemini 2.5 Flash (Google AI)</option>
-          </select>
-        </div>
-
-        <div className="space-y-2 border-t border-zinc-100 pt-2.5">
-          <label className="flex cursor-pointer items-center justify-between text-xs text-zinc-700">
-            <span>Pass 3 Executive Summary pakai Pro</span>
-            <input
-              type="checkbox"
-              checked={useProPass3}
-              onChange={(e) => setUseProPass3(e.target.checked)}
-              className="h-4 w-4 rounded text-blue-700"
-            />
-          </label>
-          <label className="flex cursor-pointer items-center justify-between text-xs text-zinc-700">
-            <span>Gunakan SQLite Batch Cache</span>
-            <input
-              type="checkbox"
-              checked={useCache}
-              onChange={(e) => setUseCache(e.target.checked)}
-              className="h-4 w-4 rounded text-blue-700"
-            />
-          </label>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 border-t border-zinc-100 pt-2.5">
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-[11px] font-semibold text-zinc-600">
               Batch Size (baris)
@@ -201,20 +287,8 @@ export default function ModelConfigPanel({
         )}
       </div>
 
-      {/* Quick Shortcuts */}
-      <div className="space-y-2 border-t border-zinc-200 pt-3">
-        <button
-          type="button"
-          onClick={onGoSystemSettings}
-          className="flex w-full items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-xs font-semibold text-zinc-700 transition hover:border-blue-300 hover:text-blue-700"
-        >
-          <span className="inline-flex items-center gap-2">
-            <KeyRound className="h-3.5 w-3.5 text-blue-600" />
-            Atur API Keys (.env)
-          </span>
-          <ArrowUpRight className="h-3.5 w-3.5" />
-        </button>
-
+      {/* Quick Shortcut */}
+      <div className="border-t border-zinc-200 pt-3">
         <button
           type="button"
           onClick={() => onGoClientConfig(clientId)}

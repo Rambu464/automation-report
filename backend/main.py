@@ -88,6 +88,7 @@ class UpdateSystemAISettingsRequest(BaseModel):
     openrouter_api_key: str | None = None
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
+    ai_provider_order: list[str] | None = None
     ai_batch_size: int | None = Field(default=None, ge=5, le=100)
     ai_max_concurrency: int | None = Field(default=None, ge=1, le=12)
 
@@ -132,34 +133,37 @@ def create_app(
     @app.get("/api/system/ai-status")
     def get_system_ai_status() -> dict[str, Any]:
         s = get_settings()
+        provider_map = {
+            "deepseek": {
+                "id": "deepseek",
+                "name": "DeepSeek",
+                "model": s.deepseek_primary_model,
+                "pro_model": s.deepseek_pro_model,
+                "configured": bool(s.deepseek_api_key.strip()),
+            },
+            "openrouter": {
+                "id": "openrouter",
+                "name": "Qwen via OpenRouter",
+                "model": s.openrouter_model,
+                "configured": bool(s.openrouter_api_key.strip()),
+            },
+            "groq": {
+                "id": "groq",
+                "name": "Llama 3.3 via Groq",
+                "model": s.groq_model,
+                "configured": bool(s.groq_api_key.strip()),
+            },
+            "gemini": {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "model": s.gemini_model,
+                "configured": bool(s.gemini_api_key.strip()),
+            },
+        }
+        order = s.get_provider_order()
         return {
-            "providers": [
-                {
-                    "id": "deepseek",
-                    "name": "DeepSeek (Primary)",
-                    "model": s.deepseek_primary_model,
-                    "pro_model": s.deepseek_pro_model,
-                    "configured": bool(s.deepseek_api_key.strip()),
-                },
-                {
-                    "id": "openrouter",
-                    "name": "Qwen via OpenRouter",
-                    "model": s.openrouter_model,
-                    "configured": bool(s.openrouter_api_key.strip()),
-                },
-                {
-                    "id": "groq",
-                    "name": "Llama 3.3 via Groq",
-                    "model": s.groq_model,
-                    "configured": bool(s.groq_api_key.strip()),
-                },
-                {
-                    "id": "gemini",
-                    "name": "Google Gemini",
-                    "model": s.gemini_model,
-                    "configured": bool(s.gemini_api_key.strip()),
-                },
-            ],
+            "providers": [provider_map[pid] for pid in order],
+            "provider_order": order,
             "ai_batch_size": s.ai_batch_size,
             "ai_max_concurrency": s.ai_max_concurrency,
             "ai_max_retries": s.ai_max_retries,
@@ -178,6 +182,17 @@ def create_app(
             updates["GROQ_API_KEY"] = req.groq_api_key.strip()
         if req.gemini_api_key is not None and req.gemini_api_key.strip():
             updates["GEMINI_API_KEY"] = req.gemini_api_key.strip()
+        if req.ai_provider_order is not None:
+            allowed = ("deepseek", "openrouter", "groq", "gemini")
+            cleaned: list[str] = []
+            for p in req.ai_provider_order:
+                pid = str(p).strip().lower()
+                if pid in allowed and pid not in cleaned:
+                    cleaned.append(pid)
+            for pid in allowed:
+                if pid not in cleaned:
+                    cleaned.append(pid)
+            updates["AI_PROVIDER_ORDER"] = ",".join(cleaned)
         if req.ai_batch_size is not None:
             updates["AI_BATCH_SIZE"] = str(req.ai_batch_size)
         if req.ai_max_concurrency is not None:
