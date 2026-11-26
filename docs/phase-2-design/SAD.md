@@ -62,17 +62,23 @@ erDiagram
     }
 
     AI_BATCH_CACHE {
-        string cache_key PK "Hash(ID + Client_Config_Version)"
-        string json_result "Hasil lengkap klasifikasi AI per baris"
-        datetime created_at "Waktu cache dibuat"
+        string cache_key PK "Hash(ID + Config_Hash + Prompt_Version + Model) atau Hash(human_qc + Client_ID + ID)"
+        string json_result "Hasil klasifikasi AI (source: ai) atau koreksi QC (source: human_qc)"
+        datetime created_at "Waktu cache dibuat/diperbarui"
     }
 ```
 
 ### Cara Kerja Sinkronisasi *Daily* $\rightarrow$ *Monthly Report*:
-1. **Sinkronisasi `takeout_registry`:** Ketika berita negatif yang bersifat sensitif di-*takeout* pada *Daily Report* (meskipun di akhir bulan tautan URL-nya sudah mati/invalid), `ID` dan `URL`-nya sudah terekam di `takeout_registry`. Saat analis mengolah file Excel *Monthly Report*, Python otomatis mencocokkan data dengan tabel ini dan langsung menandainya sebagai `Takeout` sehingga tidak ikut terhitung kembali di laporan bulanan.
+1. **Sinkronisasi `takeout_registry`:** Ketika berita negatif yang bersifat sensitif di-*takeout* pada *Daily Report* (meskipun di akhir bulan tautan URL-nya sudah mati/invalid), `ID` dan `URL`-nya sudah terekam di `takeout_registry`. Analis juga dapat mengelola daftar takedown persisten per klien langsung di halaman Konfigurasi Klien (`GET/POST/DELETE /api/clients/{client_id}/takedowns`). Saat mengolah file Excel *Monthly Report*, Python otomatis mencocokkan data dengan tabel ini dan langsung menandainya sebagai `Takeout` sehingga tidak ikut terhitung kembali.
 2. **Konsistensi `negative_issue_memory`:** Setiap kali ada isu bersentimen negatif (contoh: `"Kasus Dugaan Penyalahgunaan..."`), identitas peristiwanya disimpan di `negative_issue_memory` dan dikirim sebagai *reference context* ke LLM agar apabila isu yang sama muncul lagi di berita lain atau keesokan harinya, sentimennya **wajib tetap negatif** dan nama *Newstrend*-nya tetap seragam.
-3. **Otomasi Lookup & Seeding `media_master_hypestat` (Termasuk *Custom Tier* Klien):** Menyimpan kamus domain media yang memuat `tier_bino` (standar Binokular), `client_custom_tier_json` (misal `{"bni": "Tier 2", "bri": "Tier 1"}` untuk daftar 13.000+ media khusus klien), nilai pengunjung **Hypestat**, serta klasifikasi **`Newswire` vs. `Media Bazar`**. Berita dari domain berkategori `Newswire` langsung di-*takeout* oleh Python dalam 0 detik (0 token AI).
-   - **Alur *Seeding* & Pembaruan Data Master:** Analis/admin dapat mengimpor atau memperbarui daftar master media (termasuk file referensi `TIER BNI` / *Custom Tier* klien lain) dalam format `.xlsx` / `.csv` melalui skrip *seeder* awal atau endpoint `POST /api/media-master/import` di Local Web UI. Python menormalisasi domain (menghapus `http(s)://`, `www.`, `m.`) lalu melakukan *upsert* ke SQLite sehingga lookup berjalan $< 50\text{ ms}$ untuk 800 baris.
+3. **Otomasi Lookup *Custom Tier* Per Klien (`client_media_tier`) + Fallback Raw Newstensity:**
+   - **Prioritas 1 (Per-Client Override):** Tabel `client_media_tier(client_id, media_key, media_name, custom_tier, updated_at)` menyimpan override tier opsional per klien (misal 13.000+ entri `TIER BNI`) yang diimpor melalui `POST /api/clients/{client_id}/custom-tier/import`. Kunci pencocokan adalah domain bersih dari `Page/URL` (lowercase, strip `https://`, `www.`, `m.`, `amp.`) untuk media Online, atau `Media Name` ternormalisasi untuk Print/Elektronik.
+   - **Prioritas 2 (Fallback):** Jika media tidak ada di `client_media_tier`, Python langsung menggunakan kolom `Media Tier` bawaan dari raw `.xls` Newstensity (ternormalisasi `1.0`/`2.0`/`3.0` $\rightarrow$ `Tier 1`/`Tier 2`/`Tier 3`).
+   - Deteksi domain `Newswire` (auto-Takeout) & `Media Bazar` dikelola di konfigurasi backend (`DEFAULT_NEWSWIRE_DOMAINS`) tanpa memerlukan menu import master global di Web UI.
+4. **Anti-Stale `ai_batch_cache` & Prioritas Koreksi Manual Analis (`human_qc`):**
+   - **Key Berversi untuk Hasil AI:** Hasil klasifikasi LLM Pass 1 disimpan dengan `"source": "ai"` menggunakan `cache_key = sha256(ID : config_version_hash : PASS1_PROMPT_VERSION : active_model_name)` sehingga perubahan prompt, model LLM, atau konfigurasi klien otomatis memicu *cache miss* (mencegah *stale cache*).
+   - **Sinkronisasi Koreksi QC & Perwakilan Klaster:** Setiap kali analis menyimpan koreksi melalui `PATCH /api/qc/{job_id}`, sistem melakukan *upsert* ke `ai_batch_cache` dengan `"source": "human_qc"` pada key berversi aktif **dan** key override stabil `sha256("human_qc" : client_id : ID)`. Jika baris yang dikoreksi tergabung dalam klaster berita kembar (`Cluster_ID`), entri cache milik `ID` perwakilan klaster (`Is_Cluster_Rep == True`) ikut diperbarui agar konsisten saat *re-run* maupun *Weekly/Monthly Report*.
+   - **Prioritas Lookup Pass 1:** Pass 1 selalu memeriksa key `human_qc` terlebih dahulu sebelum key AI berversi, sehingga perubahan prompt/model hanya mengulang klasifikasi AI biasa dan **tidak pernah menimpa atau mengabaikan koreksi manual analis**.
 
 ---
 
@@ -255,9 +261,10 @@ Untuk memastikan pemrosesan 800 baris selalu selesai dalam **$< 3$ menit**, beba
 }
 ```
 
-### Strategi *Resilience* & *Multi-Model Fallback*
+### Strategi *Resilience*, *Cache Versioning*, & *Multi-Model Fallback*
 - **Primary Model:** `deepseek-flash` (via DeepSeek API / OpenRouter, memanfaatkan *Automatic Context Caching* & diskon *Off-Peak* 50% sebelum 08.00 WIB).
 - **Retry & Fallback Chain:** Jika 1 *micro-batch* gagal validasi JSON `Pydantic` atau terkena *timeout/429*, sistem melakukan *exponential backoff* (maks. 2x retry) lalu otomatis berpindah ke *fallback* berurutan: **`Qwen 2.5 72B / Qwen 3`** $\rightarrow$ **`Llama 3.3 70B (Groq)`** $\rightarrow$ **`Gemini 2.5 Flash`** tanpa mengulang *batch* yang sudah berhasil tersimpan di `ai_batch_cache`.
+- **Anti-Stale Cache & Precedence `human_qc`:** Lookup Pass 1 memprioritaskan koreksi manual analis (`"source": "human_qc"` via `human_qc:<client_id>:<report_id>`) di atas hasil AI berversi (`<report_id>:<config_hash>:<PASS1_PROMPT_VERSION>:<model_name>`). Perubahan `PASS1_PROMPT_VERSION` atau `model_name` hanya memicu klasifikasi ulang untuk baris hasil AI biasa, sementara koreksi analis dari QC tetap menjadi *cache hit* (0 panggilan LLM).
 
 ---
 

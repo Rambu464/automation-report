@@ -22,21 +22,77 @@ from src.ai_engine.client import LLMClientProtocol
 from src.ai_engine.schemas import build_pass1_batch_schema
 from src.config_loader import ClientConfig
 from src.db.repositories import AIBatchCacheRepo
+from src.settings import AppSettings
 
 ProgressCallback = Callable[[int, int, str], None]
+
+PASS1_PROMPT_VERSION = "p1_v1"
 
 
 @dataclass
 class Pass1Stats:
     total_reps: int = 0
     cache_hits: int = 0
+    human_qc_hits: int = 0
     llm_classified: int = 0
     batches_executed: int = 0
 
 
-def _make_cache_key(report_id: str, config_hash: str) -> str:
-    raw = f"{report_id}:{config_hash}"
+def resolve_active_model_name(
+    llm_client: Any = None,
+    settings: AppSettings | None = None,
+    model_name: str | None = None,
+) -> str:
+    """Resolve the active LLM model identifier for Pass 1 cache keying."""
+    if model_name and model_name.strip():
+        return model_name.strip()
+
+    if llm_client is not None:
+        explicit = getattr(llm_client, "active_model_name", None)
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip()
+        providers = getattr(llm_client, "providers", None)
+        if providers:
+            first = providers[0]
+            p_name = getattr(first, "name", "")
+            p_model = getattr(first, "model", "")
+            if p_name and p_model:
+                return f"{p_name}:{p_model}"
+            if p_model:
+                return str(p_model)
+
+    if settings is not None:
+        if settings.deepseek_api_key.strip():
+            return f"deepseek:{settings.deepseek_primary_model}"
+        if settings.openrouter_api_key.strip():
+            return f"openrouter:{settings.openrouter_model}"
+        if settings.groq_api_key.strip():
+            return f"groq:{settings.groq_model}"
+        if settings.gemini_api_key.strip():
+            return f"gemini:{settings.gemini_model}"
+        return f"deepseek:{settings.deepseek_primary_model}"
+
+    return "default"
+
+
+def _make_cache_key(
+    report_id: str,
+    config_hash: str,
+    prompt_version: str = PASS1_PROMPT_VERSION,
+    model_name: str = "default",
+) -> str:
+    raw = f"{report_id}:{config_hash}:{prompt_version}:{model_name}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _make_human_qc_cache_key(report_id: str, client_id: str) -> str:
+    """Stable per-client human QC override key that survives prompt/model/config changes."""
+    raw = f"human_qc:{client_id.strip().lower()}:{report_id.strip()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+make_cache_key = _make_cache_key
+make_human_qc_cache_key = _make_human_qc_cache_key
 
 
 def _dedupe_lines(items: list[str]) -> list[str]:
@@ -138,6 +194,8 @@ async def run_pass1_classification(
     batch_size: int = 30,
     max_concurrency: int = 5,
     progress_callback: ProgressCallback | None = None,
+    prompt_version: str = PASS1_PROMPT_VERSION,
+    model_name: str | None = None,
 ) -> tuple[pd.DataFrame, Pass1Stats]:
     """Execute Pass 1 async micro-batch classification with SQLite caching and cluster fan-out."""
     df = news_df.copy()
@@ -163,20 +221,40 @@ async def run_pass1_classification(
         return df, stats
 
     cfg_hash = config.config_version_hash()
+    effective_model = resolve_active_model_name(llm_client=llm_client, model_name=model_name)
     row_cache_keys = {
-        idx: _make_cache_key(str(df.at[idx, "ID"]), cfg_hash) for idx in rep_indices
+        idx: _make_cache_key(
+            str(df.at[idx, "ID"]),
+            cfg_hash,
+            prompt_version=prompt_version,
+            model_name=effective_model,
+        )
+        for idx in rep_indices
+    }
+    row_human_keys = {
+        idx: _make_human_qc_cache_key(str(df.at[idx, "ID"]), config.client_id)
+        for idx in rep_indices
     }
 
-    # 1. Check SQLite ai_batch_cache
-    cached_by_key = cache_repo.get_many(list(row_cache_keys.values()))
+    # 1. Check SQLite ai_batch_cache (Priority 1: human_qc override, Priority 2: versioned AI key)
+    all_lookup_keys = list(set(row_cache_keys.values()) | set(row_human_keys.values()))
+    cached_by_key = cache_repo.get_many(all_lookup_keys)
     results_by_df_idx: dict[int, dict[str, Any]] = {}
     uncached_indices: list[int] = []
 
     for df_idx in rep_indices:
+        hkey = row_human_keys[df_idx]
         ckey = row_cache_keys[df_idx]
-        if ckey in cached_by_key:
+        human_entry = cached_by_key.get(hkey)
+        if human_entry and human_entry.get("source") == "human_qc":
+            results_by_df_idx[df_idx] = human_entry
+            stats.cache_hits += 1
+            stats.human_qc_hits += 1
+        elif ckey in cached_by_key:
             results_by_df_idx[df_idx] = cached_by_key[ckey]
             stats.cache_hits += 1
+            if cached_by_key[ckey].get("source") == "human_qc":
+                stats.human_qc_hits += 1
         else:
             uncached_indices.append(df_idx)
 
@@ -231,6 +309,9 @@ async def run_pass1_classification(
             to_cache: dict[str, dict[str, Any]] = {}
             for item in getattr(resp, "items", []):
                 item_dict = item.model_dump()
+                item_dict["source"] = "ai"
+                item_dict["prompt_version"] = prompt_version
+                item_dict["model_name"] = effective_model
                 local_idx = int(item_dict["idx"])
                 if local_idx not in idx_map:
                     continue
@@ -275,21 +356,34 @@ async def run_pass1_classification(
         if res is None:
             continue
 
+        is_human_qc = res.get("source") == "human_qc"
         if res.get("status_takeout") == "Takeout":
             df.at[df_idx, "Status_Takeout"] = "Takeout"
             df.at[df_idx, "Alasan_Spam"] = res.get("alasan_spam") or "Takeout - Klasifikasi AI"
+        elif is_human_qc and res.get("status_takeout") == "Keep":
+            df.at[df_idx, "Status_Takeout"] = "Keep"
+            df.at[df_idx, "Alasan_Spam"] = str(res.get("alasan_spam") or "")
+
         if res.get("sentiment"):
             df.at[df_idx, "Sentiment"] = res["sentiment"]
-        if res.get("draft_newstrend"):
-            df.at[df_idx, "Newstrends"] = res["draft_newstrend"]
+        newstrend_val = res.get("draft_newstrend") or res.get("newstrends")
+        if newstrend_val:
+            df.at[df_idx, "Newstrends"] = newstrend_val
         if res.get("nama_isu"):
             df.at[df_idx, "Nama_Isu"] = res["nama_isu"]
         if res.get("content_type"):
             df.at[df_idx, "Content_Type"] = res["content_type"]
 
         # Store AI-extracted spokesperson separately so Tier-1 Statements are never clobbered
-        df.at[df_idx, "AI_Spokesperson"] = str(res.get("spokesperson") or "").strip()
-        df.at[df_idx, "AI_Jabatan"] = str(res.get("jabatan") or "").strip()
+        spk_val = str(res.get("spokesperson") or "").strip()
+        jab_val = str(res.get("jabatan") or "").strip()
+        df.at[df_idx, "AI_Spokesperson"] = spk_val
+        df.at[df_idx, "AI_Jabatan"] = jab_val
+        if is_human_qc:
+            if spk_val:
+                df.at[df_idx, "Spokesperson"] = spk_val
+            if jab_val:
+                df.at[df_idx, "Jabatan"] = jab_val
 
         adhoc_vals = res.get("adhoc") or {}
         for col_name in adhoc_names:

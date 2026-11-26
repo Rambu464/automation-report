@@ -17,7 +17,7 @@ from src.cleaning.sanitizer import apply_regex_spam_filter, sanitize_content_noi
 from src.cleaning.url_matcher import UrlMatchSummary, apply_client_url_lists_and_history
 from src.config_loader import ClientConfig, load_client_config
 from src.db.database import StateDatabase
-from src.db.repositories import MediaMasterRepo, TakeoutRegistryRepo
+from src.db.repositories import ClientMediaTierRepo, MediaMasterRepo, TakeoutRegistryRepo
 
 
 @dataclass
@@ -52,6 +52,7 @@ class PreCleaningPipeline:
         self.clients_dir = clients_dir
         self.takeout_repo = TakeoutRegistryRepo(self.db)
         self.media_repo = MediaMasterRepo(self.db)
+        self.client_tier_repo = ClientMediaTierRepo(self.db)
 
     def run(
         self,
@@ -99,8 +100,13 @@ class PreCleaningPipeline:
             takedown_urls=takedown_urls,
         )
 
-        # 6. Media master lookup (Custom Tier, Hypestat, Newswire auto-takeout)
-        df = enrich_media_attributes(df, config=config, media_repo=self.media_repo)
+        # 6. Media tier lookup (Priority 1: client_media_tier -> Priority 2: raw Newstensity Tier) & Newswire auto-takeout
+        df = enrich_media_attributes(
+            df,
+            config=config,
+            media_repo=self.media_repo,
+            client_tier_repo=self.client_tier_repo,
+        )
 
         # 7. Mechanical Regex Spam / Ad pre-filter (0 AI tokens)
         df = apply_regex_spam_filter(

@@ -9,7 +9,26 @@ import pandas as pd
 
 from src.cleaning.url_utils import extract_domain
 from src.config_loader import ClientConfig
-from src.db.repositories import MediaMasterRecord, MediaMasterRepo
+from src.db.repositories import (
+    ClientMediaTierRecord,
+    ClientMediaTierRepo,
+    MediaMasterRecord,
+    MediaMasterRepo,
+)
+
+# Global backend Newswire domains (auto-Takeout when config.takeout_rules.auto_takeout_newswire=True)
+DEFAULT_NEWSWIRE_DOMAINS: frozenset[str] = frozenset(
+    {
+        "prnewswire.com",
+        "prnewswire.co.id",
+        "globenewswire.com",
+        "businesswire.com",
+        "einpresswire.com",
+        "accesswire.com",
+        "acnnewswire.com",
+        "newswire.id",
+    }
+)
 
 
 def normalize_tier_label(raw_val: object) -> str:
@@ -129,18 +148,107 @@ def import_media_master_file(
     return repo.upsert_many(list(records_by_key.values()), merge_custom_tiers=True)
 
 
+def import_client_custom_tier_file(
+    file_path: Path | str,
+    client_id: str,
+    repo: ClientMediaTierRepo,
+    sheet_name: str | None = None,
+) -> int:
+    """Import per-client Custom Media Tier overrides (`.xlsx` or `.csv`) into SQLite `client_media_tier`."""
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File Custom Media Tier tidak ditemukan: {path}")
+
+    cid = client_id.strip().lower()
+    if path.suffix.lower() == ".csv":
+        df = pd.read_csv(path)
+    else:
+        with pd.ExcelFile(path, engine="calamine") as xf:
+            target_sheet = sheet_name
+            if target_sheet is None:
+                for sname in xf.sheet_names:
+                    sl = sname.strip().lower()
+                    if sl == f"tier-{cid}" or sl == f"tier {cid}" or sl.startswith("tier"):
+                        target_sheet = sname
+                        break
+                if target_sheet is None:
+                    target_sheet = xf.sheet_names[0]
+            df = pd.read_excel(xf, sheet_name=target_sheet)
+
+    col_map = {str(c).strip().lower(): c for c in df.columns}
+
+    def _pick(*candidates: str) -> str | None:
+        for cand in candidates:
+            if cand and cand in col_map:
+                return col_map[cand]
+        return None
+
+    domain_col = _pick("domain", "normalized_domain", "url", "website", "portal", "media domain")
+    name_col = _pick("media_name", "media name", "nama media", "media")
+    tier_col = _pick(
+        f"tier {cid}",
+        f"tier-{cid}",
+        f"tier_{cid}",
+        "custom_tier",
+        "custom tier",
+        "client_custom_tier",
+        "tier",
+        "media tier",
+    )
+
+    if domain_col is None and name_col is None:
+        raise ValueError("File Custom Media Tier wajib memiliki kolom 'domain' atau 'nama media' / 'media_name'.")
+    if tier_col is None:
+        raise ValueError(
+            f"Kolom tier tidak ditemukan. Gunakan nama kolom seperti 'TIER {cid.upper()}', 'custom_tier', atau 'tier'."
+        )
+
+    records_by_key: dict[str, ClientMediaTierRecord] = {}
+    for _, row in df.iterrows():
+        raw_tier = row[tier_col] if pd.notna(row[tier_col]) else ""
+        norm_tier = normalize_tier_label(raw_tier)
+        if not norm_tier:
+            continue
+
+        raw_domain = str(row[domain_col]).strip() if domain_col and pd.notna(row[domain_col]) else ""
+        media_name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else ""
+
+        media_key = extract_domain(raw_domain) if raw_domain else ""
+        if not media_key and media_name:
+            media_key = (
+                extract_domain(media_name)
+                if "." in media_name and " " not in media_name
+                else media_name.lower()
+            )
+        if not media_key:
+            continue
+
+        records_by_key[media_key] = ClientMediaTierRecord(
+            client_id=cid,
+            media_key=media_key,
+            media_name=media_name,
+            custom_tier=norm_tier,
+        )
+
+    return repo.upsert_many(list(records_by_key.values()))
+
+
 def enrich_media_attributes(
     news_df: pd.DataFrame,
     config: ClientConfig,
     media_repo: MediaMasterRepo,
+    client_tier_repo: ClientMediaTierRepo | None = None,
 ) -> pd.DataFrame:
-    """Enrich Media Tier (Bino & Client Custom Tier), Hypestat, & Media Type Detail, and auto-takeout Newswire."""
+    """Enrich Media Tier & Media Type Detail with Priority 1 `client_media_tier` -> Priority 2 raw Newstensity Tier."""
     df = news_df.copy()
     media_map = media_repo.get_all_map()
 
     custom_tier_cfg = config.media_and_spokesperson.custom_tier
     custom_key = (custom_tier_cfg.client_key or config.client_id).lower()
     custom_col_name = custom_tier_cfg.excel_column_name or f"TIER {config.client_id.upper()}"
+    client_tier_map = (
+        client_tier_repo.get_map_for_client(custom_key) if client_tier_repo is not None else {}
+    )
 
     domains: list[str] = []
     tier_bino_list: list[str] = []
@@ -162,25 +270,35 @@ def enrich_media_attributes(
         mname_key = media_names[idx].strip().lower()
         rec = media_map.get(domain) or (media_map.get(mname_key) if mname_key else None)
 
-        # Tier Bino
-        raw_tier_bino = (rec.tier_bino if rec and rec.tier_bino else existing_tiers[idx]).strip()
-        tier_bino = normalize_tier_label(raw_tier_bino)
+        # Raw Newstensity Tier (normalized to Tier 1 / Tier 2 / Tier 3)
+        raw_tier = normalize_tier_label(existing_tiers[idx])
+        tier_bino = normalize_tier_label(rec.tier_bino) if rec and rec.tier_bino else raw_tier
         tier_bino_list.append(tier_bino)
 
-        # Client Custom Tier (e.g. TIER BRI / TIER BNI)
-        custom_tier = ""
-        if rec and custom_key in rec.client_custom_tiers:
-            custom_tier = normalize_tier_label(rec.client_custom_tiers[custom_key])
+        # Priority 1: Per-client override in `client_media_tier` (domain first, then normalized Media Name)
+        override_tier = client_tier_map.get(domain) or (
+            client_tier_map.get(mname_key) if mname_key else None
+        )
+        if not override_tier and rec and custom_key in rec.client_custom_tiers:
+            override_tier = normalize_tier_label(rec.client_custom_tiers[custom_key])
+
+        # Priority 2 (Fallback): Raw Newstensity `Media Tier` (or tier_bino)
+        if override_tier:
+            custom_tier = normalize_tier_label(override_tier)
         elif custom_tier_cfg.fallback_to_bino_tier:
-            custom_tier = tier_bino
+            custom_tier = raw_tier or tier_bino
+        else:
+            custom_tier = ""
         custom_tier_list.append(custom_tier)
 
-        # Media Type Detail (Organik / Newswire / Media Bazar)
+        # Media Type Detail (Organik / Newswire / Media Bazar) — backend global Newswire check + raw data
         detail = (
             rec.media_type_detail
             if rec and rec.media_type_detail
             else (existing_details[idx] or "Organik")
         ).strip()
+        if domain in DEFAULT_NEWSWIRE_DOMAINS:
+            detail = "Newswire"
         media_detail_list.append(detail)
 
         # Hypestat daily visitor

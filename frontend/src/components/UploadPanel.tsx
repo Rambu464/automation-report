@@ -12,8 +12,15 @@ import {
   Table2,
   Download,
   ArrowRight,
+  ShieldBan,
 } from "lucide-react";
-import { JobEventPayload, ProjectItem, subscribeJobStream, uploadJob } from "@/lib/api";
+import {
+  JobEventPayload,
+  ProjectItem,
+  fetchClientTakedowns,
+  subscribeJobStream,
+  uploadJob,
+} from "@/lib/api";
 
 interface UploadPanelProps {
   project: ProjectItem;
@@ -26,8 +33,7 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
   const [cutoffDatetime, setCutoffDatetime] = useState<string>(
     project.cutoff_datetime ? project.cutoff_datetime.replace(" ", "T") : ""
   );
-  const [reqUploadUrls, setReqUploadUrls] = useState<string>("");
-  const [takedownUrls, setTakedownUrls] = useState<string>("");
+  const [savedTakedownCount, setSavedTakedownCount] = useState<number>(0);
   const [skipAi, setSkipAi] = useState<boolean>(false);
 
   const [running, setRunning] = useState<boolean>(false);
@@ -41,7 +47,10 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
     setFiles([]);
     setEvents([]);
     setError("");
-  }, [project.project_id, project.cutoff_datetime, project.status]);
+    fetchClientTakedowns(project.client_id)
+      .then((res) => setSavedTakedownCount(res.count))
+      .catch(() => setSavedTakedownCount(0));
+  }, [project.project_id, project.client_id, project.cutoff_datetime, project.status]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) setFiles(Array.from(e.target.files));
@@ -69,8 +78,8 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
         clientId: project.client_id,
         projectId: project.project_id,
         cutoffDatetime: normalizedCutoff,
-        reqUploadUrls,
-        takedownUrls,
+        reqUploadUrls: "",
+        takedownUrls: "",
         skipAi,
       });
 
@@ -255,40 +264,24 @@ export default function UploadPanel({ project, onJobCompleted }: UploadPanelProp
             </div>
           </div>
 
-          {/* Optional Client URL Lists */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-zinc-600">
-                Daftar URL Req Upload (Opsional)
-              </label>
-              <textarea
-                rows={3}
-                value={reqUploadUrls}
-                onChange={(e) => setReqUploadUrls(e.target.value)}
-                placeholder="https://kompas.com/..."
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
-              />
+          <div className="flex items-center justify-between gap-3 border-t border-zinc-100 pt-4">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+              {savedTakedownCount > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-1 font-semibold text-rose-700">
+                  <ShieldBan className="h-3.5 w-3.5" />
+                  {savedTakedownCount} URL Takedown {project.client_id.toUpperCase()} otomatis aktif
+                </span>
+              ) : (
+                <span>
+                  Butuh tambah berita Req Upload? Gunakan tombol <strong>+ Tambah Berita</strong> di Tabel QC.
+                </span>
+              )}
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-zinc-600">
-                Daftar URL Takedown Klien (Auto Sync SQLite)
-              </label>
-              <textarea
-                rows={3}
-                value={takedownUrls}
-                onChange={(e) => setTakedownUrls(e.target.value)}
-                placeholder="https://portal.id/berita-takedown..."
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end border-t border-zinc-100 pt-4">
             <button
               type="button"
               disabled={running}
               onClick={handleStart}
-              className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5" />
               {running ? "Memproses Pipeline..." : "Jalankan Pipeline Project"}

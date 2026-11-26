@@ -1,13 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Trash2, Save, Upload, CheckCircle2, AlertCircle, Presentation, Building2, BookOpenCheck, FileJson, Sparkles } from "lucide-react";
+import { Plus, Trash2, Save, Upload, CheckCircle2, AlertCircle, Presentation, Building2, BookOpenCheck, FileJson, Sparkles, ShieldBan } from "lucide-react";
 import {
   ClientConfigData,
   NewstrendBriefData,
   SentimentBriefData,
+  TakedownItem,
+  addClientTakedowns,
+  deleteClientTakedown,
   fetchClientConfig,
-  importMediaMaster,
+  fetchClientCustomTierStatus,
+  fetchClientTakedowns,
+  importClientCustomTier,
   updateClientConfig,
   uploadClientPptxTemplate,
 } from "@/lib/api";
@@ -22,10 +27,11 @@ export default function SettingsPanel({ clientId }: SettingsPanelProps) {
   const [newColDesc, setNewColDesc] = useState<string>("");
   const [cfgMsg, setCfgMsg] = useState<string>("");
 
-  // Media Master Import
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
-  const [tierKey, setTierKey] = useState<string>(clientId);
-  const [mediaMsg, setMediaMsg] = useState<string>("");
+  // Per-Client Custom Media Tier Override (`client_media_tier`)
+  const [tierFile, setTierFile] = useState<File | null>(null);
+  const [tierOverrideCount, setTierOverrideCount] = useState<number>(0);
+  const [tierMsg, setTierMsg] = useState<string>("");
+  const [tierErr, setTierErr] = useState<string>("");
 
   // PPTX Template Upload
   const [pptxFile, setPptxFile] = useState<File | null>(null);
@@ -40,6 +46,13 @@ export default function SettingsPanel({ clientId }: SettingsPanelProps) {
   const [briefMsg, setBriefMsg] = useState<string>("");
   const [briefErr, setBriefErr] = useState<string>("");
 
+  // Per-Client Persistent Takedown Registry (`takeout_registry`)
+  const [takedowns, setTakedowns] = useState<TakedownItem[]>([]);
+  const [newTakedownUrls, setNewTakedownUrls] = useState<string>("");
+  const [newTakedownReason, setNewTakedownReason] = useState<string>("Takeout - Daftar Takedown Klien");
+  const [takedownMsg, setTakedownMsg] = useState<string>("");
+  const [takedownErr, setTakedownErr] = useState<string>("");
+
   // Newstrend Creation Brief
   const [showNtJsonImport, setShowNtJsonImport] = useState<boolean>(false);
   const [rawNtJson, setRawNtJson] = useState<string>("");
@@ -49,14 +62,22 @@ export default function SettingsPanel({ clientId }: SettingsPanelProps) {
   const [ntErr, setNtErr] = useState<string>("");
 
   useEffect(() => {
-    setTierKey(clientId);
     setCfgMsg("");
-    setMediaMsg("");
+    setTierMsg("");
+    setTierErr("");
     setPptxMsg("");
     setPptxErr("");
+    setTakedownMsg("");
+    setTakedownErr("");
     fetchClientConfig(clientId)
       .then(setConfig)
       .catch(() => setConfig(null));
+    fetchClientCustomTierStatus(clientId)
+      .then((st) => setTierOverrideCount(st.total_overrides))
+      .catch(() => setTierOverrideCount(0));
+    fetchClientTakedowns(clientId)
+      .then((res) => setTakedowns(res.items))
+      .catch(() => setTakedowns([]));
   }, [clientId]);
 
   const handleAddAdhoc = () => {
@@ -89,13 +110,20 @@ export default function SettingsPanel({ clientId }: SettingsPanelProps) {
     setCfgMsg("Konfigurasi klien & kolom Ad-Hoc berhasil disimpan ke config.yaml.");
   };
 
-  const handleImportMedia = async () => {
-    if (!mediaFile) return;
-    const res = await importMediaMaster(mediaFile, tierKey);
-    setMediaMsg(
-      `Berhasil mengimpor/memperbarui ${res.records_upserted} domain ke SQLite media_master_hypestat.`
-    );
-    setMediaFile(null);
+  const handleImportCustomTier = async () => {
+    if (!tierFile) return;
+    setTierErr("");
+    setTierMsg("");
+    try {
+      const res = await importClientCustomTier(clientId, tierFile);
+      setTierOverrideCount(res.total_overrides);
+      setTierMsg(
+        `Berhasil mengimpor ${res.records_upserted.toLocaleString("id-ID")} override Custom Tier untuk ${clientId.toUpperCase()} (total aktif: ${res.total_overrides.toLocaleString("id-ID")}).`
+      );
+      setTierFile(null);
+    } catch (err) {
+      setTierErr(err instanceof Error ? err.message : "Gagal mengimpor Custom Media Tier.");
+    }
   };
 
   const handleUploadPptx = async () => {
@@ -110,6 +138,38 @@ export default function SettingsPanel({ clientId }: SettingsPanelProps) {
       setPptxFile(null);
     } catch (err) {
       setPptxErr(err instanceof Error ? err.message : "Gagal mengunggah template PPTX.");
+    }
+  };
+
+  const handleAddTakedowns = async () => {
+    const urls = newTakedownUrls
+      .split(/\r?\n/)
+      .map((u) => u.trim())
+      .filter(Boolean);
+    if (urls.length === 0) return;
+    setTakedownErr("");
+    setTakedownMsg("");
+    try {
+      const res = await addClientTakedowns(clientId, urls, newTakedownReason);
+      setTakedowns(res.items);
+      setNewTakedownUrls("");
+      setTakedownMsg(
+        `Berhasil menyimpan ${res.added} URL ke Daftar Takedown ${clientId.toUpperCase()} (total aktif: ${res.count}).`
+      );
+    } catch (err) {
+      setTakedownErr(err instanceof Error ? err.message : "Gagal menyimpan URL takedown.");
+    }
+  };
+
+  const handleDeleteTakedown = async (reportId: string) => {
+    setTakedownErr("");
+    setTakedownMsg("");
+    try {
+      const res = await deleteClientTakedown(clientId, reportId);
+      setTakedowns(res.items);
+      setTakedownMsg("URL berhasil dihapus dari Daftar Takedown klien.");
+    } catch (err) {
+      setTakedownErr(err instanceof Error ? err.message : "Gagal menghapus URL takedown.");
     }
   };
 
@@ -380,55 +440,61 @@ export default function SettingsPanel({ clientId }: SettingsPanelProps) {
           )}
         </div>
 
-        {/* Right Column: Media Master Importer + PPTX Template Uploader */}
+        {/* Right Column: Per-Client Custom Media Tier Override + PPTX Template Uploader */}
         <div className="space-y-6">
           <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-xs">
-            <div>
-              <h2 className="text-base font-bold text-zinc-900">
-                Import Master Media &amp; Custom Tier (SQLite)
-              </h2>
-              <p className="text-xs text-zinc-500">
-                Unggah file <code>.xlsx</code> atau <code>.csv</code> berisi daftar domain,{" "}
-                <code>tier_bino</code>, <code>TIER {clientId.toUpperCase()}</code>, <code>Newswire</code>/
-                <code>Media Bazar</code>, dan trafik Hypestat.
-              </p>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-zinc-600">
-                Client Key untuk Custom Tier
-              </label>
-              <input
-                type="text"
-                value={tierKey}
-                onChange={(e) => setTierKey(e.target.value)}
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
-              />
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold text-zinc-900">
+                  Import Custom Media Tier ({clientId.toUpperCase()})
+                </h2>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  <strong>Opsional.</strong> Unggah file <code>.xlsx</code> atau <code>.csv</code> khusus{" "}
+                  <code>TIER {clientId.toUpperCase()}</code> untuk menimpa tier standar. Jika tidak diunggah, sistem otomatis memakai kolom <code>Media Tier</code> bawaan raw data Newstensity.
+                </p>
+              </div>
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                  tierOverrideCount > 0
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-zinc-100 text-zinc-500"
+                }`}
+              >
+                {tierOverrideCount > 0
+                  ? `${tierOverrideCount.toLocaleString("id-ID")} Override Aktif`
+                  : "Default Newstensity"}
+              </span>
             </div>
 
             <div>
               <input
                 type="file"
                 accept=".csv,.xls,.xlsx"
-                onChange={(e) => setMediaFile(e.target.files?.[0] || null)}
+                onChange={(e) => setTierFile(e.target.files?.[0] || null)}
                 className="block w-full text-xs text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-zinc-700 hover:file:bg-zinc-200"
               />
             </div>
 
             <button
               type="button"
-              disabled={!mediaFile}
-              onClick={handleImportMedia}
+              disabled={!tierFile}
+              onClick={handleImportCustomTier}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
             >
               <Upload className="h-4 w-4" />
-              Import &amp; Upsert ke SQLite
+              Import Custom Tier {clientId.toUpperCase()}
             </button>
 
-            {mediaMsg && (
+            {tierMsg && (
               <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-2.5 text-xs text-emerald-800">
-                <CheckCircle2 className="h-4 w-4" />
-                <span>{mediaMsg}</span>
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>{tierMsg}</span>
+              </div>
+            )}
+            {tierErr && (
+              <div className="flex items-center gap-2 rounded-xl bg-red-50 p-2.5 text-xs text-red-700">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{tierErr}</span>
               </div>
             )}
           </div>
@@ -476,6 +542,123 @@ export default function SettingsPanel({ clientId }: SettingsPanelProps) {
                 <span>{pptxErr}</span>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Full-Width Persistent Takedown Registry Card */}
+      <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-xs">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-bold text-zinc-900">
+              <ShieldBan className="h-5 w-5 text-rose-600" />
+              Daftar URL Takedown Klien ({clientId.toUpperCase()})
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              URL yang disimpan di sini (<code>takeout_registry</code>) otomatis di-takeout pada semua laporan{" "}
+              <strong>Daily, Weekly, maupun Monthly</strong> klien ini tanpa perlu input ulang.
+            </p>
+          </div>
+          <span
+            className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${
+              takedowns.length > 0
+                ? "bg-rose-50 text-rose-700"
+                : "bg-zinc-100 text-zinc-600"
+            }`}
+          >
+            {takedowns.length > 0
+              ? `${takedowns.length} URL Aktif`
+              : "Belum Ada Takedown"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="space-y-3 lg:col-span-5">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-zinc-600">
+                Tambah URL Takedown (1 URL per baris)
+              </label>
+              <textarea
+                rows={4}
+                value={newTakedownUrls}
+                onChange={(e) => setNewTakedownUrls(e.target.value)}
+                placeholder={"https://portal.id/berita-takedown-1\nhttps://media.com/berita-takedown-2"}
+                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-zinc-600">
+                Alasan Takeout
+              </label>
+              <input
+                type="text"
+                value={newTakedownReason}
+                onChange={(e) => setNewTakedownReason(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-xs focus:border-blue-600 focus:outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={!newTakedownUrls.trim()}
+              onClick={handleAddTakedowns}
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
+            >
+              <Plus className="h-4 w-4" />
+              Simpan ke Daftar Takedown
+            </button>
+
+            {takedownMsg && (
+              <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-2.5 text-xs text-emerald-800">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>{takedownMsg}</span>
+              </div>
+            )}
+            {takedownErr && (
+              <div className="flex items-center gap-2 rounded-xl bg-red-50 p-2.5 text-xs text-red-700">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{takedownErr}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="lg:col-span-7">
+            <div className="mb-1.5 text-xs font-semibold text-zinc-600">
+              Riwayat URL Takedown Aktif ({takedowns.length})
+            </div>
+            <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5">
+              {takedowns.length === 0 ? (
+                <div className="py-8 text-center text-xs text-zinc-400">
+                  Belum ada URL takedown tersimpan untuk {clientId.toUpperCase()}.
+                </div>
+              ) : (
+                takedowns.map((item) => (
+                  <div
+                    key={item.report_id}
+                    className="flex items-start justify-between gap-2 rounded-lg bg-white px-3 py-2 text-xs shadow-2xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-mono text-[11px] font-medium text-zinc-800" title={item.page_url || item.normalized_url}>
+                        {item.page_url || item.normalized_url}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
+                        <span className="rounded bg-rose-50 px-1.5 py-0.5 font-medium text-rose-700">
+                          {item.alasan_spam || "Takeout"}
+                        </span>
+                        <span>{item.recorded_date}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTakedown(item.report_id)}
+                      title="Hapus dari Daftar Takedown"
+                      className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>

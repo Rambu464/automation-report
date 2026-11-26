@@ -18,14 +18,15 @@ from src.settings import get_settings
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS takeout_registry (
-    report_id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL,
     client_id TEXT NOT NULL,
     page_url TEXT NOT NULL DEFAULT '',
     normalized_url TEXT NOT NULL DEFAULT '',
     status_takeout TEXT NOT NULL DEFAULT 'Takeout',
     alasan_spam TEXT NOT NULL DEFAULT '',
     is_sensitive_negative INTEGER NOT NULL DEFAULT 0,
-    recorded_date TEXT NOT NULL
+    recorded_date TEXT NOT NULL,
+    PRIMARY KEY (client_id, report_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_takeout_client_norm_url
@@ -73,6 +74,18 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS client_media_tier (
+    client_id TEXT NOT NULL,
+    media_key TEXT NOT NULL,
+    media_name TEXT NOT NULL DEFAULT '',
+    custom_tier TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (client_id, media_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_media_tier_client
+    ON client_media_tier (client_id);
 """
 
 
@@ -100,6 +113,42 @@ class StateDatabase:
             conn.close()
 
     def initialize(self) -> None:
-        """Ensure all 4 core tables and indexes exist."""
+        """Ensure all core tables, indexes, and safe schema migrations are applied."""
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate_takeout_registry_composite_pk(conn)
+
+    @staticmethod
+    def _migrate_takeout_registry_composite_pk(conn: sqlite3.Connection) -> None:
+        """Upgrade legacy takeout_registry(report_id PK) -> PRIMARY KEY (client_id, report_id) without data loss."""
+        cols = conn.execute("PRAGMA table_info(takeout_registry)").fetchall()
+        pk_cols = [c["name"] for c in cols if c["pk"] > 0]
+        if set(pk_cols) == {"client_id", "report_id"}:
+            return
+        conn.executescript(
+            """
+            CREATE TABLE takeout_registry_new (
+                report_id TEXT NOT NULL,
+                client_id TEXT NOT NULL,
+                page_url TEXT NOT NULL DEFAULT '',
+                normalized_url TEXT NOT NULL DEFAULT '',
+                status_takeout TEXT NOT NULL DEFAULT 'Takeout',
+                alasan_spam TEXT NOT NULL DEFAULT '',
+                is_sensitive_negative INTEGER NOT NULL DEFAULT 0,
+                recorded_date TEXT NOT NULL,
+                PRIMARY KEY (client_id, report_id)
+            );
+            INSERT OR REPLACE INTO takeout_registry_new (
+                report_id, client_id, page_url, normalized_url,
+                status_takeout, alasan_spam, is_sensitive_negative, recorded_date
+            )
+            SELECT
+                report_id, client_id, page_url, normalized_url,
+                status_takeout, alasan_spam, is_sensitive_negative, recorded_date
+            FROM takeout_registry;
+            DROP TABLE takeout_registry;
+            ALTER TABLE takeout_registry_new RENAME TO takeout_registry;
+            CREATE INDEX IF NOT EXISTS idx_takeout_client_norm_url
+                ON takeout_registry (client_id, normalized_url);
+            """
+        )

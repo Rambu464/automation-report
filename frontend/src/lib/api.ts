@@ -313,13 +313,46 @@ export async function fetchQCData(jobId: string): Promise<QCResponse> {
 export async function saveQCEdits(
   jobId: string,
   edits: Array<Record<string, unknown>>
-): Promise<{ updated_count: number; synced_takeouts: number }> {
+): Promise<{ updated_count: number; synced_takeouts: number; synced_ai_cache?: number }> {
   const res = await fetch(`${API_BASE}/api/qc/${jobId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ edits }),
   });
   if (!res.ok) throw new Error("Gagal menyimpan revisi QC.");
+  return res.json();
+}
+
+export interface AddQCRowPayload {
+  page_url: string;
+  media_name?: string;
+  title: string;
+  date?: string;
+  time?: string;
+  media_type?: string;
+  media_tier?: string;
+  sentiment: "positive" | "neutral" | "negative";
+  newstrends?: string;
+  nama_isu?: string;
+  content_type: "Rilis" | "Organik";
+  spokesperson?: string;
+  jabatan?: string;
+  adhoc?: Record<string, string>;
+}
+
+export async function addQCRow(
+  jobId: string,
+  payload: AddQCRowPayload
+): Promise<{ row: QCRow }> {
+  const res = await fetch(`${API_BASE}/api/qc/${jobId}/rows`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal menambahkan berita Req Upload." }));
+    throw new Error(err.detail || "Gagal menambahkan berita Req Upload.");
+  }
   return res.json();
 }
 
@@ -360,18 +393,28 @@ export async function updateClientConfig(
   return data.config;
 }
 
-export async function importMediaMaster(
-  file: File,
-  customTierClientKey: string
-): Promise<{ records_upserted: number }> {
+export async function fetchClientCustomTierStatus(
+  clientId: string
+): Promise<{ client_id: string; total_overrides: number }> {
+  const res = await fetch(`${API_BASE}/api/clients/${clientId}/custom-tier/status`);
+  if (!res.ok) throw new Error("Gagal memuat status Custom Tier klien.");
+  return res.json();
+}
+
+export async function importClientCustomTier(
+  clientId: string,
+  file: File
+): Promise<{ records_upserted: number; total_overrides: number }> {
   const form = new FormData();
   form.append("file", file);
-  form.append("custom_tier_client_key", customTierClientKey);
-  const res = await fetch(`${API_BASE}/api/media-master/import`, {
+  const res = await fetch(`${API_BASE}/api/clients/${clientId}/custom-tier/import`, {
     method: "POST",
     body: form,
   });
-  if (!res.ok) throw new Error("Gagal mengimpor master media.");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal mengimpor Custom Media Tier." }));
+    throw new Error(err.detail || "Gagal mengimpor Custom Media Tier.");
+  }
   return res.json();
 }
 
@@ -388,6 +431,65 @@ export async function uploadClientPptxTemplate(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Gagal mengunggah template PPTX." }));
     throw new Error(err.detail || "Gagal mengunggah template PPTX.");
+  }
+  return res.json();
+}
+
+export interface TakedownItem {
+  report_id: string;
+  client_id: string;
+  page_url: string;
+  normalized_url: string;
+  status_takeout: string;
+  alasan_spam: string;
+  is_sensitive_negative: boolean;
+  recorded_date: string;
+}
+
+export interface ClientTakedownsResponse {
+  client_id: string;
+  count: number;
+  items: TakedownItem[];
+}
+
+export async function fetchClientTakedowns(clientId: string): Promise<ClientTakedownsResponse> {
+  const res = await fetch(`${API_BASE}/api/clients/${clientId}/takedowns`);
+  if (!res.ok) throw new Error("Gagal memuat Daftar Takedown klien.");
+  return res.json();
+}
+
+export async function addClientTakedowns(
+  clientId: string,
+  urls: string[],
+  alasanSpam: string = "Takeout - Daftar Takedown Klien"
+): Promise<ClientTakedownsResponse & { added: number }> {
+  const res = await fetch(`${API_BASE}/api/clients/${clientId}/takedowns`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      urls,
+      alasan_spam: alasanSpam,
+      is_sensitive_negative: true,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal menyimpan URL takedown." }));
+    throw new Error(err.detail || "Gagal menyimpan URL takedown.");
+  }
+  return res.json();
+}
+
+export async function deleteClientTakedown(
+  clientId: string,
+  reportId: string
+): Promise<ClientTakedownsResponse & { deleted: number }> {
+  const qs = new URLSearchParams({ report_id: reportId });
+  const res = await fetch(`${API_BASE}/api/clients/${clientId}/takedowns?${qs.toString()}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal menghapus URL takedown." }));
+    throw new Error(err.detail || "Gagal menghapus URL takedown.");
   }
   return res.json();
 }

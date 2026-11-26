@@ -8,7 +8,13 @@ from typing import Any
 import pandas as pd
 
 from src.ai_engine.client import LLMClientProtocol, MultiModelLLMClient, TokenUsageStats
-from src.ai_engine.pass1_classifier import Pass1Stats, ProgressCallback, run_pass1_classification
+from src.ai_engine.pass1_classifier import (
+    PASS1_PROMPT_VERSION,
+    Pass1Stats,
+    ProgressCallback,
+    resolve_active_model_name,
+    run_pass1_classification,
+)
 from src.ai_engine.pass2_normalizer import run_pass2_normalization
 from src.ai_engine.pass3_narrative import run_pass3_narrative
 from src.ai_engine.schemas import Pass3NarrativeOutput
@@ -48,8 +54,15 @@ class AIEnginePipeline:
         news_df: pd.DataFrame,
         config: ClientConfig,
         progress_callback: ProgressCallback | None = None,
+        prompt_version: str = PASS1_PROMPT_VERSION,
+        model_name: str | None = None,
     ) -> AIEngineResult:
         """Run Pass 1, 3-Tier Spokesperson Fallback, and Pass 2 Global Normalization."""
+        effective_model = resolve_active_model_name(
+            llm_client=self.llm_client,
+            settings=self.settings,
+            model_name=model_name,
+        )
         # Pass 1: Micro-Batch Classification & Extraction
         df, pass1_stats = await run_pass1_classification(
             news_df=news_df,
@@ -59,6 +72,8 @@ class AIEnginePipeline:
             batch_size=self.settings.ai_batch_size,
             max_concurrency=self.settings.ai_max_concurrency,
             progress_callback=progress_callback,
+            prompt_version=prompt_version,
+            model_name=effective_model,
         )
 
         # 3-Tier Spokesperson & Jabatan Resolver (Statements -> Content -> "0")

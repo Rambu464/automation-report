@@ -102,6 +102,25 @@
 
 ## Changelog / Log Implementasi
 
+### 2026-11-26 — Peningkatan Anti-Stale `ai_batch_cache`, Isolasi `takeout_registry`, & Insert Berita Manual (Req Upload)
+- **Ringkasan:** Mencegah *stale cache* saat prompt/model berubah, menyinkronkan koreksi manual QC ke `ai_batch_cache`, memperbaiki isolasi per klien pada `takeout_registry`, serta memindahkan fitur *Req Upload* ke tombol `+ Tambah Berita` di Tabel QC.
+- **Perubahan Utama:**
+  - `src/ai_engine/pass1_classifier.py` & `src/ai_engine/pipeline.py`: Menambahkan `PASS1_PROMPT_VERSION = "p1_v1"`, `resolve_active_model_name()`, pembaruan `_make_cache_key()` (`report_id + config_hash + prompt_version + model_name`), serta prioritas lookup `human_qc` (`make_human_qc_cache_key(report_id, client_id)`) agar perubahan prompt/model hanya mengulang klasifikasi AI biasa tanpa menimpa koreksi analis.
+  - `backend/jobs.py` (`apply_qc_edits` via `PATCH /api/qc/{job_id}`): Upsert otomatis seluruh koreksi field AI (`Sentiment`, `Newstrends`, `Nama_Isu`, `Content_Type`, `Status_Takeout`, `Alasan_Spam`, `Spokesperson`, `Jabatan`, & `adhoc`) ke `ai_batch_cache` dengan `"source": "human_qc"`, sekaligus menyinkronkan `ID` perwakilan klaster (`Is_Cluster_Rep == True`) bila baris termasuk `Cluster_ID`.
+  - `src/db/database.py` & `src/db/repositories.py`: Memperbarui `takeout_registry` ke composite `PRIMARY KEY (client_id, report_id)` + migrasi otomatis tanpa hilang data, sehingga artikel dengan `ID` sama pada klien berbeda terisolasi penuh.
+  - `backend/jobs.py`, `backend/main.py`, `frontend/src/components/QCTablePanel.tsx`, & `UploadPanel.tsx`: Menambahkan endpoint `POST /api/qc/{job_id}/rows` & modal **`+ Tambah Berita (Req Upload)`** di Tabel QC (auto-lookup `client_media_tier` dari domain URL), serta menyederhanakan form Upload Project.
+  - `frontend/src/components/NewProjectModal.tsx`: Menambahkan indikator wajib (`*`), atribut `required`, dan placeholder dropdown `Pilih Klien...` / `Pilih Tipe...`.
+  - `src/pivot/competitor.py`: Perbaikan fallback `Oplah/Daily Visitor` jika kolom tidak tersedia di DataFrame.
+  - `tests/`: Menambahkan unit test `test_takeout_registry_per_client_isolation_and_migration`, `test_ai_batch_cache_prompt_model_invalidation_and_human_qc_precedence`, `test_qc_patch_syncs_human_qc_and_cluster_rep_to_ai_batch_cache`, & test `POST /api/qc/{job_id}/rows` — total **14/14 passed** & `tsc --noEmit` **0 error**.
+
+### 2026-11-25 — Penyelarasan Media Tier, Takedown Registry, Sentiment/Newstrend Brief, & Excel-Style QC Filter
+- **Ringkasan:** Penyelarasan arsitektur & UX Phase 4 sebelum QA penuh: per-client Custom Media Tier override, manajemen Takedown Registry di Konfigurasi Klien, panduan Sentiment & Newstrend Brief, serta Sorting & AutoFilter ala Excel di Tabel QC.
+- **Perubahan Utama:**
+  - **Custom Media Tier Per Klien (`client_media_tier`):** Menambahkan tabel SQLite `client_media_tier` (`src/db/database.py`, `src/db/repositories.py`), mekanisme lookup Prioritas 1 (override klien) $\rightarrow$ Prioritas 2 (fallback `Media Tier` bawaan raw `.xls`) + `DEFAULT_NEWSWIRE_DOMAINS` di backend (`src/cleaning/media_lookup.py`), endpoint `GET/POST /api/clients/{client_id}/custom-tier/*`, serta mengganti menu Master Media global di `SettingsPanel.tsx` menjadi kartu opsional **Import Custom Media Tier** (BNI ter-seed 13.022 entri unik).
+  - **Sentiment Brief (POV Klien) & Global Newstrend Brief ("All Client"):** Dukungan konfigurasi brief sentimen per klien (termasuk JSON importer & aturan BNI di `clients/bni/config.yaml`) serta panduan pembuatan & clustering Newstrend di Pass 1 & Pass 2 (`src/config_loader.py`, `pass1_classifier.py`, `pass2_normalizer.py`, `SettingsPanel.tsx`).
+  - **Takedown Registry di Konfigurasi Klien & Collapsible Upload URLs:** Endpoint `GET/POST/DELETE /api/clients/{client_id}/takedowns`, kartu manajemen Daftar URL Takedown Klien di `SettingsPanel.tsx`, dan lipatan opsional Req Upload & Takedown Dadakan (dengan badge jumlah takedown aktif) di `UploadPanel.tsx`.
+  - **Excel-Style Sorting & AutoFilter di Tabel QC:** Klik header untuk sorting (terbaru/terlama & A–Z/Z–A), tombol cepat **Terbaru ↓ / Terlama ↑**, baris AutoFilter dropdown/teks per kolom (termasuk kolom Ad-Hoc), dan tombol **Reset Filter & Sort** di `QCTablePanel.tsx`.
+
 ### 2026-11-24 — Iterasi UI/UX: Project-Centric Workspace & Smart PPTX Updater
 - **Ringkasan:** Mengubah arsitektur Web UI menjadi **Project-Centric (1 Kasus = 1 Project persisten)** bergaya *light SaaS* (tanpa panel chat kanan) + fitur *Smart PPTX Template Element Auto-Recognition*.
 - **Perubahan Utama:**

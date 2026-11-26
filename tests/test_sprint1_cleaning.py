@@ -473,3 +473,171 @@ def test_full_sprint1_precleaning_pipeline(tmp_path: Path) -> None:
     assert result.stats.flagged_near_dup == 1
     assert result.stats.ai_cluster_reps == 3  # NEWS-001, NEWS-005, NEWS-006 (NEWS-003 shares cluster with NEWS-001)
     assert result.stats.tier1_spokesperson_filled == 1
+
+
+def test_client_custom_tier_priority_and_raw_fallback(tmp_path: Path) -> None:
+    """Verify Priority 1 (client_media_tier override), Priority 2 (raw Newstensity Tier fallback),
+    and backend Newswire auto-takeout without any global Master Media import."""
+    from src.cleaning.media_lookup import import_client_custom_tier_file
+    from src.db.repositories import ClientMediaTierRepo
+
+    db = StateDatabase(tmp_path / "custom_tier_state.db")
+    tier_repo = ClientMediaTierRepo(db)
+
+    # Import ONLY 2 custom tier overrides for BNI (1 online domain, 1 print media name)
+    custom_csv = tmp_path / "bni_custom_tier.csv"
+    pd.DataFrame(
+        [
+            {
+                "Media Name": "BeritaSatu.com",
+                "Page/URL": "https://www.beritasatu.com/ekonomi/sample",
+                "TIER BNI": "Tier 2",
+            },
+            {
+                "Media Name": "Harian Bisnis Lokal",
+                "Page/URL": "",
+                "TIER BNI": "Tier 1",
+            },
+        ]
+    ).to_csv(custom_csv, index=False)
+
+    imported = import_client_custom_tier_file(custom_csv, "bni", tier_repo)
+    assert imported >= 2
+
+    # Build raw Newstensity export containing:
+    # 1) Online media WITH custom override (raw=1.0 -> should become Tier 2 via Priority 1)
+    # 2) Online media WITHOUT custom override (raw=2.0 -> should fallback to Tier 2 via Priority 2)
+    # 3) Print media WITH custom override by normalized Media Name (raw=3.0 -> should become Tier 1)
+    # 4) Newswire domain (prnewswire.com) -> auto-Takeout via backend DEFAULT_NEWSWIRE_DOMAINS
+    raw_excel = tmp_path / "bni_raw.xlsx"
+    rows = [
+        {
+            "ID": "B1",
+            "Title": "BNI Dorong Pembiayaan UMKM",
+            "Content": "BNI memperluas akses pembiayaan UMKM di daerah.",
+            "Date": "2026-11-19 09:00",
+            "Media Name": "BeritaSatu",
+            "Page/URL": "https://m.beritasatu.com/ekonomi/bni-umkm",
+            "Media Type": "online",
+            "Media Tier": 1.0,
+            "Sentiment": "positive",
+            "Newstrends": "BNI UMKM",
+        },
+        {
+            "ID": "B2",
+            "Title": "Kinerja Kredit BNI Tumbuh Solid",
+            "Content": "Kinerja kredit BNI menunjukkan pertumbuhan positif.",
+            "Date": "2026-11-19 10:00",
+            "Media Name": "PortalEkonomiBaru.id",
+            "Page/URL": "https://www.portalekonomibaru.id/bni-kredit",
+            "Media Type": "online",
+            "Media Tier": 2.0,
+            "Sentiment": "positive",
+            "Newstrends": "Kinerja BNI",
+        },
+        {
+            "ID": "B3",
+            "Title": "BNI Gelar Literasi Keuangan di Jember",
+            "Content": "Program literasi keuangan BNI diikuti ratusan pelaku usaha.",
+            "Date": "2026-11-19 11:00",
+            "Media Name": "Harian Bisnis Lokal",
+            "Page/URL": "Hal 4",
+            "Media Type": "print",
+            "Media Tier": 3.0,
+            "Sentiment": "positive",
+            "Newstrends": "Literasi BNI",
+        },
+        {
+            "ID": "B4",
+            "Title": "BNI Global Expansion Press Release",
+            "Content": "Distributed via global wire.",
+            "Date": "2026-11-19 12:00",
+            "Media Name": "PR Newswire",
+            "Page/URL": "https://www.prnewswire.com/news-releases/bni-global",
+            "Media Type": "online",
+            "Media Tier": 3.0,
+            "Sentiment": "positive",
+            "Newstrends": "BNI Global",
+        },
+    ]
+    with pd.ExcelWriter(raw_excel, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, sheet_name="News", index=False)
+
+    pipeline = PreCleaningPipeline(db=db, clients_dir=Path("clients"))
+    result = pipeline.run(excel_paths=raw_excel, client_id="bni", cutoff_datetime="2026-11-19 15:00")
+    df = result.news_df.set_index("ID")
+
+    # Priority 1: Online domain override (raw 1.0 -> Tier 2)
+    assert df.loc["B1", "TIER BNI"] == "Tier 2"
+    assert df.loc["B1", "Status_Takeout"] == "Keep"
+
+    # Priority 2: Fallback to raw Newstensity Media Tier (2.0 -> Tier 2)
+    assert df.loc["B2", "TIER BNI"] == "Tier 2"
+    assert df.loc["B2", "Status_Takeout"] == "Keep"
+
+    # Priority 1: Print media override by normalized Media Name (raw 3.0 -> Tier 1)
+    assert df.loc["B3", "TIER BNI"] == "Tier 1"
+    assert df.loc["B3", "Status_Takeout"] == "Keep"
+
+    # Backend Newswire auto-takeout without global Master Media table
+    assert df.loc["B4", "Status_Takeout"] == "Takeout"
+    assert df.loc["B4", "Alasan_Spam"] == "Takeout - Newswire"
+
+
+def test_takeout_registry_per_client_isolation_and_migration(tmp_path: Path) -> None:
+    """Verify takeout_registry composite PRIMARY KEY (client_id, report_id) isolates
+    same report_id across clients and safely migrates legacy single-PK SQLite tables."""
+    import sqlite3
+
+    db_path = tmp_path / "legacy_takeout.db"
+    # 1. Create a legacy single-PK takeout_registry table with 1 existing row
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """
+        CREATE TABLE takeout_registry (
+            report_id TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL,
+            page_url TEXT NOT NULL DEFAULT '',
+            normalized_url TEXT NOT NULL DEFAULT '',
+            status_takeout TEXT NOT NULL DEFAULT 'Takeout',
+            alasan_spam TEXT NOT NULL DEFAULT '',
+            is_sensitive_negative INTEGER NOT NULL DEFAULT 0,
+            recorded_date TEXT NOT NULL
+        );
+        INSERT INTO takeout_registry VALUES (
+            'SHARED-ID-1', 'bri', 'https://news.id/a', 'news.id/a',
+            'Takeout', 'Takeout BRI', 1, '2026-11-25'
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    # 2. Opening StateDatabase auto-migrates to composite PK without losing existing data
+    db = StateDatabase(db_path)
+    repo = TakeoutRegistryRepo(db)
+
+    # 3. Insert the EXACT SAME report_id for another client ('bni') -> must NOT overwrite 'bri'!
+    repo.upsert_many(
+        [
+            TakeoutRecord(
+                report_id="SHARED-ID-1",
+                client_id="bni",
+                page_url="https://news.id/a",
+                normalized_url="news.id/a",
+                alasan_spam="Takeout BNI",
+                is_sensitive_negative=True,
+            )
+        ]
+    )
+    bri_by_id, _ = repo.get_by_client("bri")
+    bni_by_id, _ = repo.get_by_client("bni")
+    assert bri_by_id["SHARED-ID-1"].alasan_spam == "Takeout BRI"
+    assert bni_by_id["SHARED-ID-1"].alasan_spam == "Takeout BNI"
+
+    # 4. Deleting for 'bni' must NOT delete 'bri'
+    repo.delete_by_report_id("SHARED-ID-1", client_id="bni")
+    bri_after, _ = repo.get_by_client("bri")
+    bni_after, _ = repo.get_by_client("bni")
+    assert "SHARED-ID-1" in bri_after
+    assert "SHARED-ID-1" not in bni_after

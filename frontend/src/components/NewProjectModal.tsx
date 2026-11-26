@@ -20,15 +20,16 @@ export default function NewProjectModal({
   onCreated,
 }: NewProjectModalProps) {
   const [name, setName] = useState<string>("");
-  const [clientId, setClientId] = useState<string>(defaultClient || "bni");
-  const [reportType, setReportType] = useState<"daily" | "weekly" | "monthly" | "crisis">("daily");
+  const [clientId, setClientId] = useState<string>("");
+  const [reportType, setReportType] = useState<"" | "daily" | "weekly" | "monthly" | "crisis">("");
   const [cutoffDatetime, setCutoffDatetime] = useState<string>("");
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
   React.useEffect(() => {
     if (open) {
-      setClientId(defaultClient || clients[0] || "bni");
+      setClientId("");
+      setReportType("");
       setError("");
     }
   }, [open, defaultClient, clients]);
@@ -38,7 +39,15 @@ export default function NewProjectModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError("Nama Project / Kasus wajib diisi.");
+      setError("Nama Kasus / Project wajib diisi.");
+      return;
+    }
+    if (!clientId) {
+      setError("Profil Klien wajib dipilih.");
+      return;
+    }
+    if (!reportType) {
+      setError("Tipe Laporan wajib dipilih.");
       return;
     }
     setSubmitting(true);
@@ -52,6 +61,8 @@ export default function NewProjectModal({
         cutoff_datetime: normalizedCutoff,
       });
       setName("");
+      setClientId("");
+      setReportType("");
       setCutoffDatetime("");
       onCreated(project);
     } catch (err) {
@@ -86,10 +97,11 @@ export default function NewProjectModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="mb-1 block text-xs font-semibold text-zinc-700">
-              Nama Kasus / Project
+              Nama Kasus / Project <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
+              required
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Contoh: BNI Jember 16–19 Nov 2026"
@@ -101,15 +113,21 @@ export default function NewProjectModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-zinc-700">
-                Profil Klien
+                Profil Klien <span className="text-rose-500">*</span>
               </label>
               <select
+                required
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-600 focus:outline-none"
+                className={`w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-600 focus:outline-none ${
+                  clientId ? "text-zinc-900" : "text-zinc-400"
+                }`}
               >
+                <option value="" disabled>
+                  Pilih Klien...
+                </option>
                 {clients.map((c) => (
-                  <option key={c} value={c}>
+                  <option key={c} value={c} className="text-zinc-900">
                     {c.toUpperCase()}
                   </option>
                 ))}
@@ -118,26 +136,43 @@ export default function NewProjectModal({
 
             <div>
               <label className="mb-1 block text-xs font-semibold text-zinc-700">
-                Tipe Laporan
+                Tipe Laporan <span className="text-rose-500">*</span>
               </label>
               <select
+                required
                 value={reportType}
                 onChange={(e) =>
-                  setReportType(e.target.value as "daily" | "weekly" | "monthly" | "crisis")
+                  setReportType(
+                    e.target.value as "" | "daily" | "weekly" | "monthly" | "crisis"
+                  )
                 }
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-600 focus:outline-none"
+                className={`w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-blue-600 focus:outline-none ${
+                  reportType ? "text-zinc-900" : "text-zinc-400"
+                }`}
               >
-                <option value="daily">Daily Report</option>
-                <option value="weekly">Weekly Report</option>
-                <option value="monthly">Monthly Report</option>
-                <option value="crisis">Crisis / Ad-Hoc</option>
+                <option value="" disabled>
+                  Pilih Tipe...
+                </option>
+                <option value="daily" className="text-zinc-900">
+                  Daily Report
+                </option>
+                <option value="weekly" className="text-zinc-900">
+                  Weekly Report
+                </option>
+                <option value="monthly" className="text-zinc-900">
+                  Monthly Report
+                </option>
+                <option value="crisis" className="text-zinc-900">
+                  Crisis / Ad-Hoc
+                </option>
               </select>
             </div>
           </div>
 
           <div>
             <label className="mb-1 block text-xs font-semibold text-zinc-700">
-              Batas Tanggal &amp; Jam Cutoff (WIB, Opsional)
+              Batas Tanggal &amp; Jam Cutoff{" "}
+              <span className="font-normal text-zinc-400">(WIB, Opsional)</span>
             </label>
             <input
               type="datetime-local"

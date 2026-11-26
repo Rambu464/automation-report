@@ -13,14 +13,26 @@ from typing import Any
 import pandas as pd
 
 from src.ai_engine.client import LLMClientProtocol
+from src.ai_engine.pass1_classifier import (
+    PASS1_PROMPT_VERSION,
+    make_cache_key,
+    make_human_qc_cache_key,
+    resolve_active_model_name,
+)
 from src.ai_engine.pipeline import AIEnginePipeline
 from src.ai_engine.schemas import Pass3NarrativeOutput
 from src.ai_engine.spokesperson import apply_three_tier_spokesperson_fallback
 from src.cleaning.pipeline import PreCleaningPipeline
-from src.cleaning.url_utils import normalize_url
+from src.cleaning.url_utils import extract_domain, normalize_url
 from src.config_loader import load_client_config
 from src.db.database import StateDatabase
-from src.db.repositories import ProjectRepo, TakeoutRecord, TakeoutRegistryRepo
+from src.db.repositories import (
+    AIBatchCacheRepo,
+    ClientMediaTierRepo,
+    ProjectRepo,
+    TakeoutRecord,
+    TakeoutRegistryRepo,
+)
 from src.generators.excel_generator import generate_cleaned_excel
 from src.generators.pptx_generator import export_pptx_to_pdf, generate_pptx_report
 from src.generators.wording_generator import render_wording_text, save_wording_text
@@ -365,6 +377,7 @@ class JobManager:
         row_by_id = {str(r["ID"]): r for r in rows}
 
         takeout_repo = TakeoutRegistryRepo(self.db)
+        cache_repo = AIBatchCacheRepo(self.db)
         new_takeouts: list[TakeoutRecord] = []
         today_str = date.today().isoformat()
 
@@ -379,18 +392,33 @@ class JobManager:
             "Jabatan",
         }
         config = load_client_config(job.client_id, clients_dir=self.settings.clients_dir)
-        allowed_fields.update(c.name for c in config.adhoc_columns)
+        adhoc_names = [c.name for c in config.adhoc_columns]
+        allowed_fields.update(adhoc_names)
+
+        # Map Cluster_ID -> cluster representative row (Is_Cluster_Rep == True)
+        cluster_rep_by_cid: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            cid = str(r.get("Cluster_ID") or "").strip()
+            if cid and bool(r.get("Is_Cluster_Rep")):
+                cluster_rep_by_cid[cid] = r
 
         updated_count = 0
+        edited_ids: list[str] = []
+        edited_id_set: set[str] = set()
         for edit in edits:
             rid = str(edit.get("ID", "")).strip()
             if rid not in row_by_id:
                 continue
             target = row_by_id[rid]
+            changed_ai_field = False
             for field_name, val in edit.items():
                 if field_name in allowed_fields:
                     target[field_name] = val
+                    changed_ai_field = True
             updated_count += 1
+            if changed_ai_field and rid not in edited_id_set:
+                edited_ids.append(rid)
+                edited_id_set.add(rid)
 
             # Sync to SQLite takeout_registry when analyst marks Takeout (especially sensitive negative)
             if target.get("Status_Takeout") == "Takeout" and (
@@ -410,10 +438,70 @@ class JobManager:
                     )
                 )
             elif target.get("Status_Takeout") == "Keep":
-                takeout_repo.delete_by_report_id(rid)
+                takeout_repo.delete_by_report_id(rid, client_id=job.client_id)
 
         if new_takeouts:
             takeout_repo.upsert_many(new_takeouts)
+
+        # Sync analyst manual QC corrections to SQLite ai_batch_cache (with "source": "human_qc")
+        cfg_hash = config.config_version_hash()
+        active_model = resolve_active_model_name(
+            llm_client=self.llm_client,
+            settings=self.settings,
+        )
+
+        def _build_human_qc_payload(row: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "source": "human_qc",
+                "status_takeout": str(row.get("Status_Takeout") or "Keep"),
+                "alasan_spam": str(row.get("Alasan_Spam") or ""),
+                "sentiment": str(row.get("Sentiment") or "neutral").strip().lower(),
+                "draft_newstrend": str(row.get("Newstrends") or ""),
+                "nama_isu": str(row.get("Nama_Isu") or ""),
+                "content_type": str(row.get("Content_Type") or "Organik"),
+                "spokesperson": str(row.get("Spokesperson") or ""),
+                "jabatan": str(row.get("Jabatan") or ""),
+                "adhoc": {col: str(row.get(col) or "") for col in adhoc_names},
+                "prompt_version": PASS1_PROMPT_VERSION,
+                "model_name": active_model,
+            }
+
+        cache_entries: dict[str, dict[str, Any]] = {}
+        synced_report_ids: set[str] = set()
+        for rid in edited_ids:
+            target = row_by_id[rid]
+            qc_payload = _build_human_qc_payload(target)
+            for key in (
+                make_cache_key(
+                    rid,
+                    cfg_hash,
+                    prompt_version=PASS1_PROMPT_VERSION,
+                    model_name=active_model,
+                ),
+                make_human_qc_cache_key(rid, job.client_id),
+            ):
+                cache_entries[key] = qc_payload
+            synced_report_ids.add(rid)
+
+            # If this row belongs to a syndicated cluster, also sync its cluster representative
+            cid = str(target.get("Cluster_ID") or "").strip()
+            if cid and cid in cluster_rep_by_cid:
+                rep_id = str(cluster_rep_by_cid[cid].get("ID", "")).strip()
+                if rep_id and rep_id != rid and rep_id not in edited_id_set:
+                    for key in (
+                        make_cache_key(
+                            rep_id,
+                            cfg_hash,
+                            prompt_version=PASS1_PROMPT_VERSION,
+                            model_name=active_model,
+                        ),
+                        make_human_qc_cache_key(rep_id, job.client_id),
+                    ):
+                        cache_entries[key] = qc_payload
+                    synced_report_ids.add(rep_id)
+
+        if cache_entries:
+            cache_repo.set_many(cache_entries)
 
         # Persist updated news.json and regenerate report_payload.json
         news_df = pd.DataFrame(rows)
@@ -438,6 +526,117 @@ class JobManager:
         return {
             "updated_count": updated_count,
             "synced_takeouts": len(new_takeouts),
+            "synced_ai_cache": len(synced_report_ids),
+            "report_payload": payload,
+        }
+
+    def add_qc_row(self, job_id: str, row_data: dict[str, Any]) -> dict[str, Any]:
+        """Insert a manual Req Upload article directly into the QC table with automatic Custom Media Tier lookup."""
+        job = self.get_job(job_id)
+        news_path = job.job_dir / "news.json"
+        if not news_path.exists():
+            raise ValueError("Data QC belum tersedia.")
+
+        rows: list[dict[str, Any]] = json.loads(news_path.read_text(encoding="utf-8"))
+        config = load_client_config(job.client_id, clients_dir=self.settings.clients_dir)
+
+        page_url = str(row_data.get("page_url") or "").strip()
+        title = str(row_data.get("title") or "").strip()
+        if not title:
+            raise ValueError("Judul berita wajib diisi.")
+
+        domain = extract_domain(page_url) if page_url else ""
+        media_name = str(row_data.get("media_name") or "").strip() or domain or "Media Manual"
+        media_type = str(row_data.get("media_type") or "online").strip().lower() or "online"
+
+        # Auto-lookup Per-Client Custom Media Tier (Priority 1: domain/name in client_media_tier)
+        tier_map = ClientMediaTierRepo(self.db).get_map_for_client(job.client_id)
+        resolved_tier = (
+            tier_map.get(domain)
+            or tier_map.get(media_name.lower())
+            or str(row_data.get("media_tier") or "").strip()
+            or "Tier 3"
+        )
+
+        row_date = str(row_data.get("date") or "").strip() or date.today().isoformat()
+        row_time = str(row_data.get("time") or "").strip() or "12:00"
+        sentiment = str(row_data.get("sentiment") or "positive").strip().lower()
+        if sentiment not in {"positive", "neutral", "negative"}:
+            sentiment = "neutral"
+        content_type = str(row_data.get("content_type") or "Rilis").strip() or "Rilis"
+        newstrends = str(row_data.get("newstrends") or "").strip()
+        nama_isu = str(row_data.get("nama_isu") or "").strip() or newstrends
+        spokesperson = str(row_data.get("spokesperson") or "").strip() or "0"
+        jabatan = str(row_data.get("jabatan") or "").strip() or "0"
+        adhoc_input = row_data.get("adhoc") or {}
+
+        new_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
+        new_row: dict[str, Any] = {
+            "ID": new_id,
+            "Title": title,
+            "Content": title,
+            "Content_Clean": title,
+            "Content_Snippet": title,
+            "Date": row_date,
+            "Time": row_time,
+            "Media Name": media_name,
+            "Page/URL": page_url,
+            "Normalized_URL": normalize_url(page_url) if page_url else "",
+            "Media Type": media_type,
+            "Media Type Detail": "Organik",
+            "Media Tier": resolved_tier,
+            "Oplah/Daily Visitor": 0,
+            "Sentiment": sentiment,
+            "Newstrends": newstrends,
+            "Nama_Isu": nama_isu,
+            "Content_Type": content_type,
+            "Spokesperson": spokesperson,
+            "Jabatan": jabatan,
+            "Has_Statement": False,
+            "Status_Takeout": "Keep",
+            "Alasan_Spam": "",
+            "Flag_Cutoff_00": "CEK_CUTOFF_00:00" if row_time == "00:00" else "",
+            "Flag_Near_Dup": "",
+            "Cluster_ID": f"CL-{new_id}",
+            "Is_Cluster_Rep": True,
+            "Status_Req_Upload": "Manual Insert (Req Upload)",
+        }
+
+        if config.media_and_spokesperson.custom_tier.enabled:
+            custom_col = config.media_and_spokesperson.custom_tier.excel_column_name
+            new_row[custom_col] = resolved_tier
+
+        for ac in config.adhoc_columns:
+            new_row[ac.name] = str(adhoc_input.get(ac.name, "") or "").strip()
+
+        # Prepend so the newly added Req Upload row is immediately visible at the top
+        rows.insert(0, new_row)
+
+        news_df = pd.DataFrame(rows)
+        news_df.to_json(news_path, orient="records", force_ascii=False, indent=2)
+
+        # Increment req_upload_matched count
+        job.url_match_summary["req_upload_matched"] = (
+            int(job.url_match_summary.get("req_upload_matched", 0)) + 1
+        )
+        payload = build_report_payload(
+            news_df=news_df,
+            config=config,
+            cutoff_wib=job.cutoff_datetime or "-",
+            req_upload_matched=int(job.url_match_summary.get("req_upload_matched", 0)),
+        )
+        save_report_payload(payload, job.job_dir / "report_payload.json")
+        if job.project_id:
+            p_meta = payload["meta"]
+            self.project_repo.update_status(
+                job.project_id,
+                total_raw=p_meta["total_raw"],
+                total_clean=p_meta["total_clean"],
+                total_takeout=p_meta["total_takeout"],
+            )
+
+        return {
+            "row": new_row,
             "report_payload": payload,
         }
 

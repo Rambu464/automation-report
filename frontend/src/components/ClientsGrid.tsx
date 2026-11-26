@@ -110,7 +110,7 @@ export default function ClientsGrid({
         <div>
           <h1 className="text-xl font-bold text-zinc-900">Konfigurasi Klien</h1>
           <p className="mt-1 text-xs text-zinc-500">
-            Pilih kartu klien untuk mengatur kolom Ad-Hoc, Master Media Tier, dan Template PPTX, atau buat profil klien baru.
+            Pilih kartu klien untuk mengatur kolom Ad-Hoc, Custom Media Tier, Brief Sentimen, dan Template PPTX, atau buat profil klien baru.
           </p>
         </div>
         <button

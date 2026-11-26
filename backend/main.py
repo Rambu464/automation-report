@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import tempfile
 import uuid
@@ -16,7 +17,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.jobs import JobManager
-from src.cleaning.media_lookup import import_media_master_file
+from src.cleaning.media_lookup import import_client_custom_tier_file, import_media_master_file
+from src.cleaning.url_utils import normalize_url
 from src.config_loader import (
     AdhocColumnConfig,
     ClientConfig,
@@ -28,12 +30,36 @@ from src.config_loader import (
     save_client_config,
 )
 from src.db.database import StateDatabase
-from src.db.repositories import MediaMasterRepo, ProjectRecord, ProjectRepo
+from src.db.repositories import (
+    ClientMediaTierRepo,
+    MediaMasterRepo,
+    ProjectRecord,
+    ProjectRepo,
+    TakeoutRecord,
+    TakeoutRegistryRepo,
+)
 from src.settings import AppSettings, get_settings
 
 
 class QCEditRequest(BaseModel):
     edits: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AddQCRowRequest(BaseModel):
+    page_url: str = ""
+    media_name: str = ""
+    title: str = Field(..., min_length=2)
+    date: str = ""
+    time: str = "12:00"
+    media_type: str = "online"
+    media_tier: str = ""
+    sentiment: Literal["positive", "neutral", "negative"] = "positive"
+    newstrends: str = ""
+    nama_isu: str = ""
+    content_type: Literal["Rilis", "Organik"] = "Rilis"
+    spokesperson: str = "0"
+    jabatan: str = "0"
+    adhoc: dict[str, str] = Field(default_factory=dict)
 
 
 class ExportRequest(BaseModel):
@@ -64,6 +90,12 @@ class UpdateSystemAISettingsRequest(BaseModel):
     gemini_api_key: str | None = None
     ai_batch_size: int | None = Field(default=None, ge=5, le=100)
     ai_max_concurrency: int | None = Field(default=None, ge=1, le=12)
+
+
+class AddTakedownsRequest(BaseModel):
+    urls: list[str] = Field(default_factory=list)
+    alasan_spam: str = "Takeout - Daftar Takedown Klien"
+    is_sensitive_negative: bool = True
 
 
 def create_app(
@@ -317,6 +349,15 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.post("/api/qc/{job_id}/rows", status_code=201)
+    def add_qc_row(job_id: str, body: AddQCRowRequest) -> dict[str, Any]:
+        try:
+            return jm.add_qc_row(job_id, body.model_dump())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # --- 4. Client Config & Ad-Hoc Columns ---
     @app.get("/api/clients")
     def get_clients() -> dict[str, list[str]]:
@@ -409,6 +450,128 @@ def create_app(
             "client_id": client_id,
             "template_path": rel_path,
             "size_bytes": len(raw),
+        }
+
+    # --- 4b. Per-Client Custom Media Tier Override (`client_media_tier`) ---
+    @app.get("/api/clients/{client_id}/custom-tier/status")
+    def get_client_custom_tier_status(client_id: str) -> dict[str, Any]:
+        repo = ClientMediaTierRepo(db)
+        return {
+            "client_id": client_id.strip().lower(),
+            "total_overrides": repo.count_for_client(client_id),
+        }
+
+    @app.post("/api/clients/{client_id}/custom-tier/import")
+    async def import_client_custom_tier(
+        client_id: str,
+        file: UploadFile = File(...),
+    ) -> dict[str, Any]:
+        suffix = Path(file.filename or "custom_tier.csv").suffix or ".csv"
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="File Custom Media Tier kosong.")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(raw)
+            tmp_path = Path(tmp.name)
+
+        try:
+            repo = ClientMediaTierRepo(db)
+            count = import_client_custom_tier_file(
+                tmp_path,
+                client_id=client_id,
+                repo=repo,
+            )
+            return {
+                "status": "imported",
+                "client_id": client_id.strip().lower(),
+                "records_upserted": count,
+                "total_overrides": repo.count_for_client(client_id),
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    # --- 4c. Per-Client Persistent Takedown Registry (`takeout_registry`) ---
+    @app.get("/api/clients/{client_id}/takedowns")
+    def list_client_takedowns(client_id: str) -> dict[str, Any]:
+        cid = client_id.strip().lower()
+        repo = TakeoutRegistryRepo(db)
+        items = repo.list_by_client(cid)
+        return {
+            "client_id": cid,
+            "count": len(items),
+            "items": [asdict(item) for item in items],
+        }
+
+    @app.post("/api/clients/{client_id}/takedowns")
+    def add_client_takedowns(client_id: str, body: AddTakedownsRequest) -> dict[str, Any]:
+        cid = client_id.strip().lower()
+        repo = TakeoutRegistryRepo(db)
+        alasan = body.alasan_spam.strip() or "Takeout - Daftar Takedown Klien"
+
+        records: list[TakeoutRecord] = []
+        seen_norm: set[str] = set()
+        for raw_url in body.urls:
+            cleaned = str(raw_url or "").strip()
+            if not cleaned:
+                continue
+            norm = normalize_url(cleaned)
+            if not norm or norm in seen_norm:
+                continue
+            seen_norm.add(norm)
+            digest = hashlib.sha256(f"{cid}:{norm}".encode("utf-8")).hexdigest()[:12].upper()
+            records.append(
+                TakeoutRecord(
+                    report_id=f"TAKEDOWN-{digest}",
+                    client_id=cid,
+                    page_url=cleaned,
+                    normalized_url=norm,
+                    status_takeout="Takeout",
+                    alasan_spam=alasan,
+                    is_sensitive_negative=bool(body.is_sensitive_negative),
+                )
+            )
+
+        if not records:
+            raise HTTPException(status_code=400, detail="Masukkan minimal 1 URL valid untuk takedown.")
+
+        added = repo.upsert_many(records)
+        items = repo.list_by_client(cid)
+        return {
+            "status": "saved",
+            "client_id": cid,
+            "added": added,
+            "count": len(items),
+            "items": [asdict(item) for item in items],
+        }
+
+    @app.delete("/api/clients/{client_id}/takedowns")
+    def delete_client_takedown(
+        client_id: str,
+        report_id: str = "",
+        normalized_url: str = "",
+    ) -> dict[str, Any]:
+        cid = client_id.strip().lower()
+        if not report_id.strip() and not normalized_url.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Parameter report_id atau normalized_url wajib diisi.",
+            )
+        repo = TakeoutRegistryRepo(db)
+        deleted = repo.delete_for_client(
+            cid,
+            report_id=report_id,
+            normalized_url=normalized_url,
+        )
+        items = repo.list_by_client(cid)
+        return {
+            "status": "deleted" if deleted > 0 else "not_found",
+            "deleted": deleted,
+            "client_id": cid,
+            "count": len(items),
+            "items": [asdict(item) for item in items],
         }
 
     # --- 5. Media Master Import (CSV / XLSX) ---

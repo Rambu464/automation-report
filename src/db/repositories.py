@@ -57,7 +57,7 @@ class TakeoutRegistryRepo:
             report_id, client_id, page_url, normalized_url,
             status_takeout, alasan_spam, is_sensitive_negative, recorded_date
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(report_id) DO UPDATE SET
+        ON CONFLICT(client_id, report_id) DO UPDATE SET
             page_url = excluded.page_url,
             normalized_url = excluded.normalized_url,
             status_takeout = excluded.status_takeout,
@@ -105,9 +105,52 @@ class TakeoutRegistryRepo:
                     by_url[rec.normalized_url] = rec
         return by_id, by_url
 
-    def delete_by_report_id(self, report_id: str) -> None:
+    def list_by_client(self, client_id: str) -> list[TakeoutRecord]:
+        """Return all takeout records for a client ordered newest first."""
+        sql = "SELECT * FROM takeout_registry WHERE client_id = ? ORDER BY recorded_date DESC, report_id DESC"
+        results: list[TakeoutRecord] = []
         with self.db.connect() as conn:
-            conn.execute("DELETE FROM takeout_registry WHERE report_id = ?", (report_id,))
+            for row in conn.execute(sql, (client_id,)).fetchall():
+                results.append(
+                    TakeoutRecord(
+                        report_id=row["report_id"],
+                        client_id=row["client_id"],
+                        page_url=row["page_url"],
+                        normalized_url=row["normalized_url"],
+                        status_takeout=row["status_takeout"],
+                        alasan_spam=row["alasan_spam"],
+                        is_sensitive_negative=bool(row["is_sensitive_negative"]),
+                        recorded_date=row["recorded_date"],
+                    )
+                )
+        return results
+
+    def delete_by_report_id(self, report_id: str, client_id: str | None = None) -> None:
+        with self.db.connect() as conn:
+            if client_id is not None:
+                conn.execute(
+                    "DELETE FROM takeout_registry WHERE client_id = ? AND report_id = ?",
+                    (client_id, report_id),
+                )
+            else:
+                conn.execute("DELETE FROM takeout_registry WHERE report_id = ?", (report_id,))
+
+    def delete_for_client(self, client_id: str, report_id: str = "", normalized_url: str = "") -> int:
+        """Delete a takeout entry scoped to client_id by report_id or normalized_url."""
+        with self.db.connect() as conn:
+            if report_id.strip():
+                cur = conn.execute(
+                    "DELETE FROM takeout_registry WHERE client_id = ? AND report_id = ?",
+                    (client_id, report_id.strip()),
+                )
+                return cur.rowcount
+            if normalized_url.strip():
+                cur = conn.execute(
+                    "DELETE FROM takeout_registry WHERE client_id = ? AND normalized_url = ?",
+                    (client_id, normalized_url.strip()),
+                )
+                return cur.rowcount
+        return 0
 
 
 class NegativeIssueMemoryRepo:
@@ -429,4 +472,63 @@ class ProjectRepo:
         with self.db.connect() as conn:
             cur = conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
         return cur.rowcount > 0
+
+
+@dataclass
+class ClientMediaTierRecord:
+    client_id: str
+    media_key: str  # normalized domain (online) or normalized lowercase media_name (print/electronic)
+    custom_tier: str
+    media_name: str = ""
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ClientMediaTierRepo:
+    """Manages per-client Custom Media Tier overrides (`client_media_tier` table)."""
+
+    def __init__(self, db: StateDatabase) -> None:
+        self.db = db
+
+    def upsert_many(self, records: list[ClientMediaTierRecord]) -> int:
+        if not records:
+            return 0
+        now_iso = datetime.now(timezone.utc).isoformat()
+        sql = """
+        INSERT INTO client_media_tier (client_id, media_key, media_name, custom_tier, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(client_id, media_key) DO UPDATE SET
+            media_name = CASE WHEN excluded.media_name != '' THEN excluded.media_name ELSE client_media_tier.media_name END,
+            custom_tier = excluded.custom_tier,
+            updated_at = excluded.updated_at
+        """
+        rows = [
+            (
+                r.client_id.strip().lower(),
+                r.media_key.strip().lower(),
+                r.media_name.strip(),
+                r.custom_tier.strip(),
+                r.updated_at or now_iso,
+            )
+            for r in records
+            if r.client_id.strip() and r.media_key.strip() and r.custom_tier.strip()
+        ]
+        if not rows:
+            return 0
+        with self.db.connect() as conn:
+            conn.executemany(sql, rows)
+        return len(rows)
+
+    def get_map_for_client(self, client_id: str) -> dict[str, str]:
+        """Return `{normalized_media_key: custom_tier}` for fast O(1) lookup."""
+        sql = "SELECT media_key, custom_tier FROM client_media_tier WHERE client_id = ?"
+        with self.db.connect() as conn:
+            rows = conn.execute(sql, (client_id.strip().lower(),)).fetchall()
+        return {row["media_key"]: row["custom_tier"] for row in rows}
+
+    def count_for_client(self, client_id: str) -> int:
+        sql = "SELECT COUNT(*) AS cnt FROM client_media_tier WHERE client_id = ?"
+        with self.db.connect() as conn:
+            row = conn.execute(sql, (client_id.strip().lower(),)).fetchone()
+        return int(row["cnt"]) if row else 0
+
 

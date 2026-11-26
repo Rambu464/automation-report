@@ -601,7 +601,7 @@ export default function AppShell({
                         Detail Pre-Cleaning &amp; Media Tier Lookup
                       </h2>
                       <p className="text-xs text-zinc-500">
-                        Ringkasan hasil deterministik (0 Token AI) — Deduplikasi 3-Lapis, Cutoff, &amp; SQLite Master Media.
+                        Ringkasan hasil deterministik (0 Token AI) — Deduplikasi 3-Lapis, Cutoff, &amp; Custom Media Tier.
                       </p>
                     </div>
                     {qcData && (

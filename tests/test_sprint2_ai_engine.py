@@ -420,3 +420,142 @@ def test_bni_sentiment_brief_loaded_and_injected_into_pass1_prompt() -> None:
     p2_prompt = _build_pass2_system_prompt(bni_cfg)
     assert "PANDUAN PEMBUATAN & CLUSTERING NEWSTREND" in p2_prompt
     assert "pemberdayaan masyarakat dan pesantren" in p2_prompt
+
+
+async def test_ai_batch_cache_prompt_model_invalidation_and_human_qc_precedence(
+    tmp_path: Path,
+) -> None:
+    """Verify:
+    (a) Human QC cached corrections hit without calling LLM on re-run.
+    (b) Changing PASS1_PROMPT_VERSION or model_name invalidates regular AI cache
+        but still honors human_qc corrections.
+    """
+    from src.ai_engine.pass1_classifier import (
+        PASS1_PROMPT_VERSION,
+        make_cache_key,
+        make_human_qc_cache_key,
+        run_pass1_classification,
+    )
+    from src.db.repositories import AIBatchCacheRepo
+
+    db = StateDatabase(tmp_path / "cache_version_state.db")
+    cache_repo = AIBatchCacheRepo(db)
+    cfg = load_client_config("bri", clients_dir=Path("clients"))
+    mock_llm = MockLLMClient()
+
+    df_in = pd.DataFrame(
+        [
+            {
+                "ID": "ROW-AI-001",
+                "Title": "BRI Salurkan KUR Rp 120 Triliun",
+                "Content_Snippet": "BRI menyalurkan KUR bagi UMKM.",
+                "Media Name": "Kompas.com",
+                "Media Type": "online",
+                "Status_Takeout": "Keep",
+                "Alasan_Spam": "",
+                "Cluster_ID": "CL-A1",
+                "Is_Cluster_Rep": True,
+                "Has_Statement": False,
+                "Spokesperson": "",
+                "Jabatan": "",
+                "Sentiment": "neutral",
+                "Newstrends": "",
+            },
+            {
+                "ID": "ROW-QC-002",
+                "Title": "Layanan BRImo Catat Transaksi Tinggi",
+                "Content_Snippet": "Transaksi digital BRImo tumbuh pesat.",
+                "Media Name": "Detik.com",
+                "Media Type": "online",
+                "Status_Takeout": "Keep",
+                "Alasan_Spam": "",
+                "Cluster_ID": "CL-A2",
+                "Is_Cluster_Rep": True,
+                "Has_Statement": False,
+                "Spokesperson": "",
+                "Jabatan": "",
+                "Sentiment": "neutral",
+                "Newstrends": "",
+            },
+        ]
+    )
+
+    # 1. Initial run with default prompt_version & model_name -> 2 LLM classifications
+    df1, stats1 = await run_pass1_classification(
+        news_df=df_in,
+        config=cfg,
+        llm_client=mock_llm,
+        cache_repo=cache_repo,
+        prompt_version=PASS1_PROMPT_VERSION,
+        model_name="deepseek:deepseek-chat",
+    )
+    assert stats1.llm_classified == 2
+    assert stats1.cache_hits == 0
+    assert mock_llm.pass1_call_count == 1
+    assert df1.set_index("ID").loc["ROW-QC-002", "Sentiment"] == "positive"
+
+    # 2. Simulate analyst manual QC override on ROW-QC-002
+    cfg_hash = cfg.config_version_hash()
+    human_payload = {
+        "source": "human_qc",
+        "status_takeout": "Keep",
+        "alasan_spam": "",
+        "sentiment": "negative",
+        "draft_newstrend": "Koreksi Analis: Keluhan Transaksi BRImo",
+        "nama_isu": "Keluhan BRImo",
+        "content_type": "Organik",
+        "spokesperson": "Humas BRI",
+        "jabatan": "Corporate Secretary",
+        "adhoc": {"Kluster": "Layanan Digital (BRImo)", "Paid_Earned": "Earned"},
+    }
+    cache_repo.set_many(
+        {
+            make_cache_key(
+                "ROW-QC-002",
+                cfg_hash,
+                prompt_version=PASS1_PROMPT_VERSION,
+                model_name="deepseek:deepseek-chat",
+            ): human_payload,
+            make_human_qc_cache_key("ROW-QC-002", cfg.client_id): human_payload,
+        }
+    )
+
+    # 3. (a) Re-run with SAME prompt_version & model_name -> 0 LLM calls, human_qc value applied
+    calls_before = mock_llm.pass1_call_count
+    df2, stats2 = await run_pass1_classification(
+        news_df=df_in,
+        config=cfg,
+        llm_client=mock_llm,
+        cache_repo=cache_repo,
+        prompt_version=PASS1_PROMPT_VERSION,
+        model_name="deepseek:deepseek-chat",
+    )
+    assert stats2.cache_hits == 2
+    assert stats2.human_qc_hits == 1
+    assert stats2.llm_classified == 0
+    assert mock_llm.pass1_call_count == calls_before
+    out2 = df2.set_index("ID")
+    assert out2.loc["ROW-QC-002", "Sentiment"] == "negative"
+    assert out2.loc["ROW-QC-002", "Newstrends"] == "Koreksi Analis: Keluhan Transaksi BRImo"
+    assert out2.loc["ROW-QC-002", "Spokesperson"] == "Humas BRI"
+
+    # 4. (b) Re-run with NEW prompt_version & NEW model_name:
+    #    - ROW-AI-001 (regular AI cache) MUST miss and call LLM again
+    #    - ROW-QC-002 (human_qc) MUST still hit cache and keep analyst correction!
+    calls_before_v2 = mock_llm.pass1_call_count
+    df3, stats3 = await run_pass1_classification(
+        news_df=df_in,
+        config=cfg,
+        llm_client=mock_llm,
+        cache_repo=cache_repo,
+        prompt_version="p1_v2",
+        model_name="openrouter:qwen/qwen-2.5-72b-instruct",
+    )
+    assert stats3.human_qc_hits == 1
+    assert stats3.cache_hits == 1
+    assert stats3.llm_classified == 1
+    assert mock_llm.pass1_call_count == calls_before_v2 + 1
+    out3 = df3.set_index("ID")
+    assert out3.loc["ROW-AI-001", "Sentiment"] == "positive"
+    assert out3.loc["ROW-QC-002", "Sentiment"] == "negative"
+    assert out3.loc["ROW-QC-002", "Newstrends"] == "Koreksi Analis: Keluhan Transaksi BRImo"

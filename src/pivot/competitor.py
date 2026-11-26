@@ -60,9 +60,11 @@ def curate_competitor_highlights(
         else ""
     )
     keep_df["_tier_rank"] = keep_df["_tier_val"].map(lambda v: _tier_rank(v, priority))
-    keep_df["_visitor"] = pd.to_numeric(
-        keep_df.get("Oplah/Daily Visitor", 0), errors="coerce"
-    ).fillna(0)
+    keep_df["_visitor"] = (
+        pd.to_numeric(keep_df["Oplah/Daily Visitor"], errors="coerce").fillna(0)
+        if "Oplah/Daily Visitor" in keep_df.columns
+        else 0
+    )
 
     highlights: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for entity in comp_cfg.entities:
