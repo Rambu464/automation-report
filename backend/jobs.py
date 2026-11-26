@@ -22,6 +22,7 @@ from src.ai_engine.pass1_classifier import (
 from src.ai_engine.pipeline import AIEnginePipeline
 from src.ai_engine.schemas import Pass3NarrativeOutput
 from src.ai_engine.spokesperson import apply_three_tier_spokesperson_fallback
+from src.cleaning.ingestion import ingest_excel_files
 from src.cleaning.pipeline import PreCleaningPipeline
 from src.cleaning.url_utils import extract_domain, normalize_url
 from src.config_loader import load_client_config
@@ -106,26 +107,388 @@ class JobManager:
             return self._jobs[job_id]
         # Rehydrate persisted job from disk after backend restart!
         job_dir = self.jobs_root / job_id
+        meta_file = job_dir / "job_meta.json"
         payload_path = job_dir / "report_payload.json"
-        if payload_path.exists():
-            meta_file = job_dir / "job_meta.json"
+        if meta_file.exists() or payload_path.exists():
             meta_info: dict[str, Any] = (
                 json.loads(meta_file.read_text(encoding="utf-8")) if meta_file.exists() else {}
             )
-            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            payload = (
+                json.loads(payload_path.read_text(encoding="utf-8"))
+                if payload_path.exists()
+                else {}
+            )
             p_meta = payload.get("meta") or {}
+            status = meta_info.get("status") or ("completed" if payload_path.exists() else "raw_uploaded")
             rehydrated = JobState(
                 job_id=job_id,
                 client_id=meta_info.get("client_id") or p_meta.get("client_id") or "bri",
                 job_dir=job_dir,
                 project_id=meta_info.get("project_id", ""),
-                status="completed",
+                status=status,
                 cutoff_datetime=meta_info.get("cutoff_datetime") or p_meta.get("cutoff_wib", ""),
                 url_match_summary=meta_info.get("url_match_summary") or {},
             )
             self._jobs[job_id] = rehydrated
             return rehydrated
         raise KeyError(f"Job tidak ditemukan: {job_id}")
+
+    @staticmethod
+    def _build_raw_preview_dict(
+        saved_paths: list[Path],
+        raw_news_df: pd.DataFrame,
+        raw_stmts_df: pd.DataFrame,
+    ) -> dict[str, Any]:
+        preview_cols = [
+            c
+            for c in ("ID", "Date", "Media Name", "Title", "Media Type", "Media Tier", "Sentiment", "Page/URL")
+            if c in raw_news_df.columns
+        ]
+        sample_df = raw_news_df[preview_cols].head(200).fillna("")
+        return {
+            "files": [
+                {"name": p.name, "size_bytes": p.stat().st_size if p.exists() else 0}
+                for p in saved_paths
+            ],
+            "total_raw_news": int(len(raw_news_df)),
+            "total_raw_statements": int(len(raw_stmts_df)),
+            "columns": [str(c) for c in raw_news_df.columns],
+            "rows": sample_df.to_dict(orient="records"),
+        }
+
+    def stage_raw_job(
+        self,
+        project_id: str,
+        client_id: str,
+        file_blobs: list[tuple[str, bytes]],
+        cutoff_datetime: str = "",
+    ) -> dict[str, Any]:
+        """Stage 1 (Input Raw Data): save uploaded Excel files & extract raw preview (0 AI tokens, no SSE)."""
+        load_client_config(client_id, clients_dir=self.settings.clients_dir)
+
+        job_id = uuid.uuid4().hex[:12]
+        job_dir = self.jobs_root / job_id
+        raw_dir = job_dir / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        saved_paths: list[Path] = []
+        for filename, content in file_blobs:
+            safe_name = Path(filename).name
+            dest = raw_dir / safe_name
+            dest.write_bytes(content)
+            saved_paths.append(dest)
+
+        wb = ingest_excel_files(saved_paths)
+        raw_preview = self._build_raw_preview_dict(saved_paths, wb.news_df, wb.statements_df)
+        (job_dir / "raw_preview.json").write_text(
+            json.dumps(raw_preview, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        job = JobState(
+            job_id=job_id,
+            client_id=client_id,
+            job_dir=job_dir,
+            project_id=project_id,
+            status="raw_uploaded",
+            cutoff_datetime=cutoff_datetime,
+        )
+        self._jobs[job_id] = job
+        (job_dir / "job_meta.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_id,
+                    "project_id": project_id,
+                    "client_id": client_id,
+                    "status": "raw_uploaded",
+                    "cutoff_datetime": cutoff_datetime,
+                    "url_match_summary": {},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        if project_id:
+            self.project_repo.update_status(
+                project_id,
+                latest_job_id=job_id,
+                status="raw_uploaded",
+                cutoff_datetime=cutoff_datetime,
+                total_raw=raw_preview["total_raw_news"],
+                total_clean=0,
+                total_takeout=0,
+            )
+
+        return {
+            "job_id": job_id,
+            "project_id": project_id,
+            "client_id": client_id,
+            "status": "raw_uploaded",
+            "cutoff_datetime": cutoff_datetime,
+            "raw_preview": raw_preview,
+        }
+
+    def run_preclean_stage(
+        self,
+        job_id: str,
+        cutoff_datetime: str | None = None,
+    ) -> dict[str, Any]:
+        """Stage 2 (Pre-Cleaning & Media Tier): run deterministic Sprint 1 cleaning (0 AI tokens)."""
+        job = self.get_job(job_id)
+        raw_dir = job.job_dir / "raw"
+        excel_paths = sorted(
+            [p for p in raw_dir.glob("*") if p.suffix.lower() in {".xls", ".xlsx"}]
+        )
+        if not excel_paths:
+            raise ValueError("File raw Excel belum diunggah pada project ini.")
+
+        if cutoff_datetime is not None:
+            job.cutoff_datetime = cutoff_datetime.strip()
+
+        # Ensure raw_preview.json exists even for legacy jobs
+        if not (job.job_dir / "raw_preview.json").exists():
+            wb = ingest_excel_files(excel_paths)
+            raw_preview = self._build_raw_preview_dict(excel_paths, wb.news_df, wb.statements_df)
+            (job.job_dir / "raw_preview.json").write_text(
+                json.dumps(raw_preview, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+        config = load_client_config(job.client_id, clients_dir=self.settings.clients_dir)
+        pre_pipeline = PreCleaningPipeline(db=self.db, clients_dir=self.settings.clients_dir)
+        pre_res = pre_pipeline.run(
+            excel_paths=excel_paths,
+            client_id=job.client_id,
+            cutoff_datetime=job.cutoff_datetime or None,
+        )
+        news_df = pre_res.news_df
+        statements_df = pre_res.statements_df
+
+        for col in ("Nama_Isu", "Content_Type"):
+            if col not in news_df.columns:
+                news_df[col] = "Organik" if col == "Content_Type" else ""
+        for ac in config.adhoc_columns:
+            if ac.name not in news_df.columns:
+                news_df[ac.name] = ""
+        news_df = apply_three_tier_spokesperson_fallback(
+            news_df,
+            missing_value=config.media_and_spokesperson.spokesperson_missing_value,
+        )
+
+        job.url_match_summary = {
+            "req_upload_total": pre_res.url_match_summary.req_upload_total,
+            "req_upload_matched": pre_res.url_match_summary.req_upload_matched,
+            "req_upload_unmatched_urls": pre_res.url_match_summary.req_upload_unmatched_urls,
+            "takedown_matched": pre_res.url_match_summary.takedown_matched,
+            "historical_takeout_matched": pre_res.url_match_summary.historical_takeout_matched,
+        }
+        payload = build_report_payload(
+            news_df=news_df,
+            config=config,
+            cutoff_wib=job.cutoff_datetime or "-",
+            req_upload_matched=pre_res.url_match_summary.req_upload_matched,
+        )
+        job.status = "precleaned"
+        self._save_job_dataframes(job, news_df, statements_df, payload, narrative=None)
+
+        if job.project_id:
+            p_meta = payload["meta"]
+            self.project_repo.update_status(
+                job.project_id,
+                latest_job_id=job.job_id,
+                status="precleaned",
+                cutoff_datetime=job.cutoff_datetime,
+                total_raw=p_meta["total_raw"],
+                total_clean=p_meta["total_clean"],
+                total_takeout=p_meta["total_takeout"],
+            )
+
+        return self.get_preclean_preview(job_id)
+
+    def get_preclean_preview(self, job_id: str) -> dict[str, Any]:
+        """Return Before (Raw) vs After (Pre-Cleaned) preview data for Node 2."""
+        job = self.get_job(job_id)
+        config = load_client_config(job.client_id, clients_dir=self.settings.clients_dir)
+        custom_tier_col = (
+            config.media_and_spokesperson.custom_tier.excel_column_name
+            if config.media_and_spokesperson.custom_tier.enabled
+            else "Media Tier"
+        )
+
+        raw_preview_path = job.job_dir / "raw_preview.json"
+        if raw_preview_path.exists():
+            raw_preview = json.loads(raw_preview_path.read_text(encoding="utf-8"))
+        else:
+            raw_dir = job.job_dir / "raw"
+            excel_paths = sorted(
+                [p for p in raw_dir.glob("*") if p.suffix.lower() in {".xls", ".xlsx"}]
+            )
+            if excel_paths:
+                wb = ingest_excel_files(excel_paths)
+                raw_preview = self._build_raw_preview_dict(excel_paths, wb.news_df, wb.statements_df)
+                raw_preview_path.write_text(
+                    json.dumps(raw_preview, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            else:
+                raw_preview = {
+                    "files": [],
+                    "total_raw_news": 0,
+                    "total_raw_statements": 0,
+                    "columns": [],
+                    "rows": [],
+                }
+
+        cleaned_summary: dict[str, Any] | None = None
+        news_path = job.job_dir / "news.json"
+        payload_path = job.job_dir / "report_payload.json"
+        if news_path.exists() and payload_path.exists():
+            rows: list[dict[str, Any]] = json.loads(news_path.read_text(encoding="utf-8"))
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            takeout_reasons: dict[str, int] = {}
+            ai_cluster_reps = 0
+            for r in rows:
+                if r.get("Status_Takeout") != "Keep":
+                    reason = str(r.get("Alasan_Spam") or "Takeout Lainnya").strip()
+                    takeout_reasons[reason] = takeout_reasons.get(reason, 0) + 1
+                elif bool(r.get("Is_Cluster_Rep", True)):
+                    ai_cluster_reps += 1
+
+            preview_rows = [
+                {
+                    "ID": r.get("ID", ""),
+                    "Date": r.get("Date", ""),
+                    "Time": r.get("Time", ""),
+                    "Media Name": r.get("Media Name", ""),
+                    "Title": r.get("Title", ""),
+                    "Page/URL": r.get("Page/URL", ""),
+                    "Status_Takeout": r.get("Status_Takeout", "Keep"),
+                    "Alasan_Spam": r.get("Alasan_Spam", ""),
+                    "Tier": r.get(custom_tier_col) or r.get("Media Tier", ""),
+                    "Flag_Cutoff_00": r.get("Flag_Cutoff_00", ""),
+                    "Flag_Near_Dup": r.get("Flag_Near_Dup", ""),
+                    "Cluster_ID": r.get("Cluster_ID", ""),
+                    "Is_Cluster_Rep": bool(r.get("Is_Cluster_Rep", True)),
+                    "Sentiment": r.get("Sentiment", ""),
+                }
+                for r in rows[:200]
+            ]
+            cleaned_summary = {
+                "total_raw": payload["meta"]["total_raw"],
+                "total_clean": payload["meta"]["total_clean"],
+                "total_takeout": payload["meta"]["total_takeout"],
+                "ai_cluster_reps": ai_cluster_reps,
+                "custom_tier_col": custom_tier_col,
+                "takeout_reasons": takeout_reasons,
+                "by_custom_tier": payload["media_breakdown"]["by_custom_tier"],
+                "by_type": payload["media_breakdown"]["by_type"],
+                "rows": preview_rows,
+            }
+
+        return {
+            "job_id": job.job_id,
+            "project_id": job.project_id,
+            "client_id": job.client_id,
+            "status": job.status,
+            "cutoff_datetime": job.cutoff_datetime,
+            "raw_preview": raw_preview,
+            "cleaned_summary": cleaned_summary,
+        }
+
+    def start_ai_stage(self, job_id: str) -> JobState:
+        """Stage 3 (3-Pass Cloud AI Engine): run AI classification & narrative on pre-cleaned data with SSE."""
+        job = self.get_job(job_id)
+        if not (job.job_dir / "news.json").exists():
+            raise ValueError("Pre-Cleaning belum dijalankan. Jalankan Pre-Cleaning terlebih dahulu.")
+        if not self._has_any_ai_key():
+            raise ValueError(
+                "API key Cloud AI belum diisi. Atur minimal 1 API key di Pengaturan Sistem terlebih dahulu."
+            )
+
+        job.events = []
+        job.error = ""
+        job.status = "running"
+        if job.project_id:
+            self.project_repo.update_status(job.project_id, status="running")
+        job.push_event(
+            "progress",
+            "ai_engine",
+            10,
+            "Menyiapkan 3-Pass Cloud AI Engine (Pass 1 Micro-Batch, Spokesperson, Pass 2 Newstrend, Pass 3 Narasi)...",
+        )
+        asyncio.create_task(self._run_ai_only(job))
+        return job
+
+    async def _run_ai_only(self, job: JobState) -> None:
+        try:
+            config = load_client_config(job.client_id, clients_dir=self.settings.clients_dir)
+            news_df = pd.read_json(job.job_dir / "news.json")
+            stmts_path = job.job_dir / "statements.json"
+            statements_df = pd.read_json(stmts_path) if stmts_path.exists() else pd.DataFrame()
+
+            ai_pipeline = AIEnginePipeline(
+                db=self.db,
+                llm_client=self.llm_client,
+                settings=self.settings,
+            )
+
+            def _on_ai_progress(done_b: int, total_b: int, msg: str) -> None:
+                pct = 15 + int((done_b / max(1, total_b)) * 60)
+                job.push_event("progress", "ai_engine", min(pct, 78), msg)
+
+            ai_res = await ai_pipeline.classify_and_normalize(
+                news_df=news_df,
+                config=config,
+                progress_callback=_on_ai_progress,
+            )
+            news_df = ai_res.news_df
+
+            job.push_event(
+                "progress",
+                "pivot",
+                84,
+                f"Pass 1–2 selesai ({ai_res.pass1_stats.cache_hits} cache hit, {ai_res.pass1_stats.llm_classified} LLM). Menyusun Pivot...",
+            )
+            payload = build_report_payload(
+                news_df=news_df,
+                config=config,
+                cutoff_wib=job.cutoff_datetime or "-",
+                req_upload_matched=int(job.url_match_summary.get("req_upload_matched", 0)),
+            )
+
+            job.push_event(
+                "progress",
+                "narrative",
+                92,
+                "Pass 3: Menyusun Executive Summary & Arah Percakapan Publik...",
+            )
+            narrative = await ai_pipeline.generate_narrative(payload, config=config)
+
+            job.status = "completed"
+            self._save_job_dataframes(job, news_df, statements_df, payload, narrative)
+            if job.project_id:
+                p_meta = payload["meta"]
+                self.project_repo.update_status(
+                    job.project_id,
+                    latest_job_id=job.job_id,
+                    status="completed",
+                    total_raw=p_meta["total_raw"],
+                    total_clean=p_meta["total_clean"],
+                    total_takeout=p_meta["total_takeout"],
+                )
+            job.push_event(
+                "done",
+                "completed",
+                100,
+                f"3-Pass AI Engine selesai! ({ai_res.pass1_stats.cache_hits} cache hit, {ai_res.pass1_stats.llm_classified} klasifikasi baru).",
+            )
+        except Exception as exc:
+            job.status = "failed"
+            job.error = str(exc)
+            if job.project_id:
+                self.project_repo.update_status(job.project_id, status="failed")
+            job.push_event("error", "failed", 100, f"Gagal menjalankan 3-Pass AI Engine: {exc}")
 
     def create_job(
         self,
@@ -316,6 +679,7 @@ class JobManager:
                     "job_id": job.job_id,
                     "project_id": job.project_id,
                     "client_id": job.client_id,
+                    "status": job.status,
                     "cutoff_datetime": job.cutoff_datetime,
                     "url_match_summary": job.url_match_summary,
                 },
@@ -696,5 +1060,37 @@ class JobManager:
                 "pptx": str(pptx_path),
                 "pdf": str(pdf_path) if pdf_path else None,
                 "wording": str(wording_path),
+            },
+        }
+
+    def get_existing_export(self, job_id: str) -> dict[str, Any] | None:
+        """Rehydrate previously generated deliverables from disk so ExportPanel persists across browser refresh."""
+        job = self.get_job(job_id)
+        out_dir = job.job_dir / "output"
+        if not out_dir.exists():
+            return None
+
+        excel_matches = list(out_dir.glob("*.xlsx"))
+        pptx_matches = list(out_dir.glob("*.pptx"))
+        pdf_matches = list(out_dir.glob("*.pdf"))
+        wording_matches = list(out_dir.glob("*.txt"))
+        if not (excel_matches or pptx_matches or wording_matches):
+            return None
+
+        wording_text = (
+            wording_matches[0].read_text(encoding="utf-8") if wording_matches else ""
+        )
+        return {
+            "job_id": job_id,
+            "excel_url": f"/api/export/{job_id}/download/excel" if excel_matches else "",
+            "pptx_url": f"/api/export/{job_id}/download/pptx" if pptx_matches else "",
+            "pdf_url": f"/api/export/{job_id}/download/pdf" if pdf_matches else None,
+            "wording_url": f"/api/export/{job_id}/download/wording" if wording_matches else "",
+            "wording_text": wording_text,
+            "files": {
+                "excel": str(excel_matches[0]) if excel_matches else None,
+                "pptx": str(pptx_matches[0]) if pptx_matches else None,
+                "pdf": str(pdf_matches[0]) if pdf_matches else None,
+                "wording": str(wording_matches[0]) if wording_matches else None,
             },
         }

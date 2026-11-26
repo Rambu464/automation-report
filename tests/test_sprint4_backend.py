@@ -427,3 +427,90 @@ async def test_qc_patch_syncs_human_qc_and_cluster_rep_to_ai_batch_cache(
     assert indexed.loc["MEM-002", "Sentiment"] == "negative"
     assert indexed.loc["MEM-002", "Newstrends"] == "Evaluasi Penyaluran KUR BRI oleh Analis"
     assert indexed.loc["MEM-002", "Kluster"] == "Kebijakan & Evaluasi"
+
+
+def test_sprint5_3stage_pipeline_stage_raw_preclean_and_run_ai(tmp_path: Path) -> None:
+    """Verify Sprint 5 modular 3-stage pipeline:
+    1) POST /api/projects/{project_id}/stage-raw -> raw_preview.json, status=raw_uploaded
+    2) POST /api/jobs/{job_id}/run-preclean -> Before/After preview, status=precleaned
+    3) POST /api/jobs/{job_id}/run-ai + SSE -> 3-Pass AI with MockLLMClient, status=completed
+    """
+    import shutil
+    from tests.test_sprint2_ai_engine import MockLLMClient
+
+    clients_dir = tmp_path / "clients"
+    shutil.copytree(Path("clients"), clients_dir)
+
+    settings = AppSettings(
+        data_dir=tmp_path / "data",
+        clients_dir=clients_dir,
+        sqlite_db_path=tmp_path / "data" / "sprint5_state.db",
+    )
+    db = StateDatabase(settings.sqlite_db_path)
+    mock_llm = MockLLMClient()
+    jm = JobManager(settings=settings, db=db, llm_client=mock_llm)
+    app = create_app(settings=settings, job_manager=jm)
+
+    with TestClient(app) as client:
+        # 0. Create Project
+        r_prj = client.post(
+            "/api/projects",
+            json={
+                "name": "Sprint 5 Step-by-Step BRI",
+                "client_id": "bri",
+                "report_type": "daily",
+                "cutoff_datetime": "2026-11-19 15:00",
+            },
+        )
+        assert r_prj.status_code == 201
+        project_id = r_prj.json()["project"]["project_id"]
+
+        # 1. Stage Raw Data (no SSE, 0 AI tokens)
+        r_stage = client.post(
+            f"/api/projects/{project_id}/stage-raw",
+            files={
+                "files": (
+                    "raw_bri.xlsx",
+                    _make_excel_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+            data={"client_id": "bri", "cutoff_datetime": "2026-11-19 15:00"},
+        )
+        assert r_stage.status_code == 200
+        staged = r_stage.json()
+        assert staged["status"] == "raw_uploaded"
+        assert staged["raw_preview"]["total_raw_news"] == 2
+        job_id = staged["job_id"]
+
+        # 2. Run Pre-Cleaning Stage (Before/After preview, 0 AI tokens)
+        r_pre = client.post(
+            f"/api/jobs/{job_id}/run-preclean",
+            json={"cutoff_datetime": "2026-11-19 15:00"},
+        )
+        assert r_pre.status_code == 200
+        pre = r_pre.json()
+        assert pre["status"] == "precleaned"
+        assert pre["raw_preview"]["total_raw_news"] == 2
+        assert pre["cleaned_summary"]["total_clean"] == 2
+        assert pre["cleaned_summary"]["total_takeout"] == 0
+
+        # Preview GET endpoint works identically
+        r_prev = client.get(f"/api/jobs/{job_id}/preclean-preview")
+        assert r_prev.status_code == 200
+        assert r_prev.json()["cleaned_summary"]["total_clean"] == 2
+
+        # QC table is already accessible right after Pre-Cleaning (before AI!)
+        assert client.get(f"/api/qc/{job_id}").status_code == 200
+
+        # 3. Run 3-Pass AI Stage + SSE stream
+        r_ai = client.post(f"/api/jobs/{job_id}/run-ai")
+        assert r_ai.status_code == 200
+        with client.stream("GET", f"/api/process/{job_id}/stream") as resp:
+            assert resp.status_code == 200
+            stream_body = "".join(resp.iter_text())
+        assert "event: done" in stream_body
+
+        prj_done = client.get(f"/api/projects/{project_id}").json()["project"]
+        assert prj_done["status"] == "completed"
+        assert mock_llm.pass1_call_count >= 1

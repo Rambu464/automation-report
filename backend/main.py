@@ -93,6 +93,10 @@ class UpdateSystemAISettingsRequest(BaseModel):
     ai_max_concurrency: int | None = Field(default=None, ge=1, le=12)
 
 
+class RunPrecleanRequest(BaseModel):
+    cutoff_datetime: str | None = None
+
+
 class AddTakedownsRequest(BaseModel):
     urls: list[str] = Field(default_factory=list)
     alasan_spam: str = "Takeout - Daftar Takedown Klien"
@@ -258,7 +262,65 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Project tidak ditemukan: {project_id}")
         return {"status": "deleted", "project_id": project_id}
 
-    # --- 1. Upload & Start Pipeline ---
+    # --- 1. Step-by-Step 3-Stage Pipeline (Stage Raw -> Pre-Clean -> 3-Pass AI) + One-Shot Upload ---
+    @app.post("/api/projects/{project_id}/stage-raw")
+    async def stage_raw_files(
+        project_id: str,
+        files: list[UploadFile] = File(...),
+        client_id: str = Form("bri"),
+        cutoff_datetime: str = Form(""),
+    ) -> dict[str, Any]:
+        if not files:
+            raise HTTPException(status_code=400, detail="Minimal 1 file .xls/.xlsx harus diunggah.")
+        file_blobs: list[tuple[str, bytes]] = []
+        for f in files:
+            data = await f.read()
+            if data:
+                file_blobs.append((f.filename or "upload.xlsx", data))
+        if not file_blobs:
+            raise HTTPException(status_code=400, detail="File yang diunggah kosong.")
+
+        try:
+            return jm.stage_raw_job(
+                project_id=project_id,
+                client_id=client_id,
+                file_blobs=file_blobs,
+                cutoff_datetime=cutoff_datetime,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/jobs/{job_id}/run-preclean")
+    def run_preclean_stage(job_id: str, body: RunPrecleanRequest | None = None) -> dict[str, Any]:
+        try:
+            return jm.run_preclean_stage(
+                job_id=job_id,
+                cutoff_datetime=body.cutoff_datetime if body else None,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/jobs/{job_id}/preclean-preview")
+    def get_preclean_preview(job_id: str) -> dict[str, Any]:
+        try:
+            return jm.get_preclean_preview(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/jobs/{job_id}/run-ai")
+    async def run_ai_stage(job_id: str) -> dict[str, Any]:
+        try:
+            job = jm.start_ai_stage(job_id)
+            return {"job_id": job.job_id, "status": job.status}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/upload")
     async def upload_excel(
         files: list[UploadFile] = File(...),
@@ -617,6 +679,16 @@ def create_app(
             tmp_path.unlink(missing_ok=True)
 
     # --- 6. Triple-Deliverable Export & Download ---
+    @app.get("/api/export/{job_id}")
+    def get_existing_export(job_id: str) -> dict[str, Any]:
+        try:
+            existing = jm.get_existing_export(job_id)
+            if existing is None:
+                return {"exported": False}
+            return {"exported": True, **existing}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.post("/api/export/{job_id}")
     def export_job(job_id: str, body: ExportRequest | None = None) -> dict[str, Any]:
         req = body or ExportRequest()

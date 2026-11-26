@@ -1,8 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Download, Copy, Check, FileSpreadsheet, Presentation, FileText, Sparkles } from "lucide-react";
-import { API_BASE, ExportResponse, QCResponse, exportDeliverables } from "@/lib/api";
+import {
+  API_BASE,
+  ExportResponse,
+  QCResponse,
+  exportDeliverables,
+  fetchExistingExport,
+} from "@/lib/api";
 
 interface ExportPanelProps {
   qcData: QCResponse;
@@ -29,6 +35,12 @@ export default function ExportPanel({ qcData }: ExportPanelProps) {
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<ExportResponse | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    fetchExistingExport(qcData.job_id)
+      .then((existing) => setResult(existing))
+      .catch(() => setResult(null));
+  }, [qcData.job_id]);
 
   const toggleCol = (col: string) => {
     setSelectedCols((prev) =>

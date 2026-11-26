@@ -243,6 +243,105 @@ export async function createClientProfile(payload: {
   return res.json();
 }
 
+export interface RawPreviewData {
+  files: Array<{ name: string; size_bytes: number }>;
+  total_raw_news: number;
+  total_raw_statements: number;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+}
+
+export interface PreCleanCleanedSummary {
+  total_raw: number;
+  total_clean: number;
+  total_takeout: number;
+  ai_cluster_reps: number;
+  custom_tier_col: string;
+  takeout_reasons: Record<string, number>;
+  by_custom_tier: Record<string, number>;
+  by_type: Record<string, number>;
+  rows: Array<Record<string, unknown>>;
+}
+
+export interface PreCleanPreviewResponse {
+  job_id: string;
+  project_id: string;
+  client_id: string;
+  status: string;
+  cutoff_datetime: string;
+  raw_preview: RawPreviewData;
+  cleaned_summary: PreCleanCleanedSummary | null;
+}
+
+export async function stageRawFiles(params: {
+  projectId: string;
+  clientId: string;
+  files: File[];
+  cutoffDatetime: string;
+}): Promise<{
+  job_id: string;
+  project_id: string;
+  client_id: string;
+  status: string;
+  cutoff_datetime: string;
+  raw_preview: RawPreviewData;
+}> {
+  const form = new FormData();
+  for (const f of params.files) {
+    form.append("files", f);
+  }
+  form.append("client_id", params.clientId);
+  form.append("cutoff_datetime", params.cutoffDatetime);
+
+  const res = await fetch(`${API_BASE}/api/projects/${params.projectId}/stage-raw`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal menyimpan file raw Excel." }));
+    throw new Error(err.detail || "Gagal menyimpan file raw Excel.");
+  }
+  return res.json();
+}
+
+export async function runPrecleanStage(
+  jobId: string,
+  cutoffDatetime?: string
+): Promise<PreCleanPreviewResponse> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}/run-preclean`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      cutoffDatetime !== undefined ? { cutoff_datetime: cutoffDatetime } : {}
+    ),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal menjalankan Pre-Cleaning." }));
+    throw new Error(err.detail || "Gagal menjalankan Pre-Cleaning.");
+  }
+  return res.json();
+}
+
+export async function fetchPrecleanPreview(jobId: string): Promise<PreCleanPreviewResponse> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}/preclean-preview`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal memuat preview Pre-Cleaning." }));
+    throw new Error(err.detail || "Gagal memuat preview Pre-Cleaning.");
+  }
+  return res.json();
+}
+
+export async function runAIStage(jobId: string): Promise<{ job_id: string; status: string }> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}/run-ai`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Gagal memulai 3-Pass AI Engine." }));
+    throw new Error(err.detail || "Gagal memulai 3-Pass AI Engine.");
+  }
+  return res.json();
+}
+
 export async function uploadJob(params: {
   files: File[];
   clientId: string;
@@ -356,6 +455,14 @@ export async function addQCRow(
     throw new Error(err.detail || "Gagal menambahkan berita Req Upload.");
   }
   return res.json();
+}
+
+export async function fetchExistingExport(jobId: string): Promise<ExportResponse | null> {
+  const res = await fetch(`${API_BASE}/api/export/${jobId}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.exported) return null;
+  return data as ExportResponse;
 }
 
 export async function exportDeliverables(

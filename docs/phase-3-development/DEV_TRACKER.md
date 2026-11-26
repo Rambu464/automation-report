@@ -13,6 +13,7 @@
 | **Sprint 2** | 3-Pass Cloud AI Engine, Dynamic Ad-Hoc Schema, Spokesperson Fallback, & Multi-Model Fallback | `src/ai_engine/`, `tests/` | ✅ Selesai | 7 / 7 |
 | **Sprint 3** | Auto-Pivot Engine, Kurasi Kompetitor, `report_payload.json`, & Triple Deliverables (`.xlsx`, `.pptx/.pdf`, *Wording*) | `src/pivot/`, `src/generators/`, `tests/` | ✅ Selesai | 7 / 7 |
 | **Sprint 4** | FastAPI REST + SSE Backend & Next.js Local Web UI (Interactive QC 4-Tab, Ad-Hoc Form, Column Picker) | `backend/`, `frontend/`, `tests/` | ✅ Selesai | 7 / 7 |
+| **Sprint 5** | Step-by-Step Interactive Pipeline Studio (Staging Input, Pre-Clean Before/After Preview, Dedicated AI Runner, 2-Pill Header) | `backend/`, `frontend/`, `tests/` | ✅ Selesai | 6 / 6 |
 
 ---
 
@@ -97,6 +98,22 @@
 | **S4-05** | [x] | Implementasi Interactive Spreadsheet QC Table (4 Tab Filter: `00:00`, `Takeout & Alasan Spam`, `Rilis & Spokesperson 0`, `Mirip Judul`) | `frontend/src/components/QCTablePanel.tsx` | Analis dapat *inline edit* & simpan revisi yang langsung *sync* ke SQLite `takeout_registry` & `report_payload.json` |
 | **S4-06** | [x] | Implementasi Form Config Klien + Kolom *Ad-Hoc* & Import Media Master UI | `frontend/src/components/SettingsPanel.tsx` | Analis bisa tambah/ubah `adhoc_columns` & unggah file master media tanpa edit YAML manual |
 | **S4-07** | [x] | Implementasi Client Export *Column Picker* & Panel Unduh/Salin 3 Output Utama (`.xlsx`, `.pptx/.pdf`, Copy *Wording*) | `frontend/src/components/ExportPanel.tsx`, `frontend/src/app/page.tsx` | Analis dapat memilih kolom Excel klien dan mengunduh/menyalin ketiga output dalam 1 klik |
+
+---
+
+## Sprint 5: Step-by-Step Interactive Pipeline Studio ✅
+
+**Tujuan:** Mengubah alur eksekusi Web UI dari *1-tombol black-box* menjadi *Step-by-Step Interactive Pipeline Studio* di mana setiap node kanvas memiliki halaman aksi nyata (Input Staging, Pre-Cleaning + Before/After Preview, 3-Pass AI Runner + SSE), serta memindahkan **Tabel QC Interaktif** menjadi pill utama di samping **Workflow Canvas** di atas kanvas.
+**Referensi:** `SAD.md` (Bab 7B & 7C).
+
+| ID | Status | Task | File / Target | Kriteria Selesai (*Definition of Done*) |
+| :--- | :---: | :--- | :--- | :--- |
+| **S5-01** | [x] | Implementasi Backend 3-Stage Modular Endpoints (`stage-raw`, `run-preclean`, `preclean-preview`, `run-ai` + SSE) | `backend/jobs.py`, `backend/main.py` | Project mendukung transisi status `draft` $\rightarrow$ `raw_uploaded` $\rightarrow$ `precleaned` $\rightarrow$ `completed` dengan `raw_preview.json` & rehidrasi disk |
+| **S5-02** | [x] | Perbarui Header 2-Pill di Atas Kanvas (`Workflow Canvas` & `Tabel QC Interaktif`) & Hapus Node QC dari Kanvas | `frontend/src/components/AppShell.tsx`, `WorkflowCanvas.tsx` | Kedua pill berada di luar/atas kanvas; alur kanvas menjadi `Input Raw Data` $\rightarrow$ `Pre-Cleaning & Media Tier` $\rightarrow$ `3-Pass AI` $\rightarrow$ 3 Output |
+| **S5-03** | [x] | Redesign Halaman Node 1 (`Input Raw Data`) — Staging File & Cutoff Tanpa Live Progress | `frontend/src/components/UploadPanel.tsx` | Unggah file `.xls/.xlsx` langsung menyimpan raw data, menampilkan daftar file + jumlah baris raw, & tombol `Lanjut ke Pre-Cleaning →` |
+| **S5-04** | [x] | Buat Halaman Node 2 (`Pre-Cleaning & Media Tier`) — Tombol Mulai Cleaning + Preview Raw Awal vs. Hasil Bersih | `frontend/src/components/PreCleanPanel.tsx` | Tombol `▶ Mulai Pre-Cleaning` (0 token AI), 2 tab preview (*Raw Awal* vs. *Hasil Bersih `Keep`/`Takeout`*), breakdown alasan takeout & Tier, serta CTA lanjut |
+| **S5-05** | [x] | Buat Halaman Node 3 (`3-Pass Cloud AI Engine`) — Ringkasan Kesiapan + Kirim ke AI + Live Progress SSE | `frontend/src/components/AIEnginePanel.tsx` | Menampilkan jumlah perwakilan klaster & model primary aktif, tombol `▶ Kirim ke 3-Pass AI Engine`, Live Progress SSE per batch, & ringkasan hasil sentimen/cache |
+| **S5-06** | [x] | Unit Test Backend 3-Stage (`stage-raw` $\rightarrow$ `run-preclean` $\rightarrow$ `run-ai`) & Verifikasi `pytest` + `tsc` | `tests/test_sprint4_backend.py` | **16/16 passed (`pytest`)** & **`tsc --noEmit` 0 error** |
 
 ---
 

@@ -35,6 +35,8 @@ import {
 } from "@/lib/api";
 import WorkflowCanvas, { WorkflowNodeId } from "@/components/WorkflowCanvas";
 import UploadPanel from "@/components/UploadPanel";
+import PreCleanPanel from "@/components/PreCleanPanel";
+import AIEnginePanel from "@/components/AIEnginePanel";
 import QCTablePanel from "@/components/QCTablePanel";
 import ExportPanel from "@/components/ExportPanel";
 import SettingsPanel from "@/components/SettingsPanel";
@@ -158,7 +160,6 @@ export default function AppShell({
     if (nodeId === "upload") goProject(projectId, "upload");
     else if (nodeId === "preclean") goProject(projectId, "preclean");
     else if (nodeId === "ai") goProject(projectId, "ai");
-    else if (nodeId === "qc") goProject(projectId, "qc");
     else goProject(projectId, "export");
   };
 
@@ -506,31 +507,56 @@ export default function AppShell({
           ) : (
             /* Active Project Workspace (URL: /projects/[projectId] or /projects/[projectId]/[step]) */
             <div className="mx-auto max-w-7xl space-y-4">
-              {/* When inside a step view, show top-left back-to-canvas pill (+ Export shortcut on QC) */}
-              {step !== "canvas" && (
-                <div className="flex flex-wrap items-center justify-between gap-2">
+              {/* Top 2-Pill Switcher outside/above Canvas: Workflow Canvas & Tabel QC Interaktif */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => goProject(activeProject.project_id, "canvas")}
-                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-zinc-800 shadow-2xs transition hover:border-blue-300 hover:bg-blue-50/40"
+                    className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition ${
+                      step === "canvas"
+                        ? "border-zinc-300 bg-white text-zinc-900 shadow-2xs"
+                        : "border-transparent bg-zinc-200/60 text-zinc-600 hover:bg-white/80 hover:text-zinc-900"
+                    }`}
                   >
-                    <ArrowLeft className="h-3.5 w-3.5 text-zinc-500" />
+                    {step !== "canvas" && step !== "qc" && (
+                      <ArrowLeft className="h-3.5 w-3.5 text-zinc-400" />
+                    )}
                     <GitBranch className="h-3.5 w-3.5 text-blue-600" />
                     Workflow Canvas
                   </button>
 
-                  {step === "qc" && qcData && (
-                    <button
-                      type="button"
-                      onClick={() => goProject(activeProject.project_id, "export")}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Lanjut ke Ekspor →
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={!qcData}
+                    onClick={() => goProject(activeProject.project_id, "qc")}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                      step === "qc"
+                        ? "border-zinc-300 bg-white text-zinc-900 shadow-2xs"
+                        : "border-transparent bg-zinc-200/60 text-zinc-600 hover:bg-white/80 hover:text-zinc-900"
+                    }`}
+                  >
+                    <Table2 className="h-3.5 w-3.5 text-emerald-600" />
+                    Tabel QC Interaktif
+                    {qcData && (
+                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-700">
+                        {qcData.tab_counts.all}
+                      </span>
+                    )}
+                  </button>
                 </div>
-              )}
+
+                {step === "qc" && qcData && (
+                  <button
+                    type="button"
+                    onClick={() => goProject(activeProject.project_id, "export")}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Lanjut ke Ekspor →
+                  </button>
+                )}
+              </div>
 
               {step === "canvas" && (
                 <WorkflowCanvas
@@ -541,124 +567,42 @@ export default function AppShell({
               )}
 
               {step === "upload" && (
-                <UploadPanel project={activeProject} onJobCompleted={handleJobCompleted} />
+                <UploadPanel
+                  project={activeProject}
+                  onRawStaged={async () => {
+                    await reloadProjects();
+                    setQcData(null);
+                  }}
+                  onGoPreclean={() => goProject(activeProject.project_id, "preclean")}
+                />
               )}
 
               {step === "preclean" && (
-                <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-base font-bold text-zinc-900">
-                        Detail Pre-Cleaning &amp; Media Tier Lookup
-                      </h2>
-                      <p className="text-xs text-zinc-500">
-                        Ringkasan hasil deterministik (0 Token AI) — Deduplikasi 3-Lapis, Cutoff, &amp; Custom Media Tier.
-                      </p>
-                    </div>
-                    {qcData && (
-                      <button
-                        type="button"
-                        onClick={() => goProject(activeProject.project_id, "qc")}
-                        className="rounded-xl bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
-                      >
-                        Buka di Tabel QC →
-                      </button>
-                    )}
-                  </div>
-                  {qcData ? (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold text-zinc-500">Volume &amp; Takeout</div>
-                        <div className="mt-2 space-y-1 text-xs">
-                          <div>Raw Data: <strong>{qcData.report_payload.meta.total_raw}</strong></div>
-                          <div className="text-emerald-700">Keep (Clean): <strong>{qcData.report_payload.meta.total_clean}</strong></div>
-                          <div className="text-rose-600">Takeout: <strong>{qcData.report_payload.meta.total_takeout}</strong></div>
-                          <div>Flag 00:00: <strong>{qcData.tab_counts.cutoff_00}</strong></div>
-                          <div>Mirip Judul: <strong>{qcData.tab_counts.near_dup}</strong></div>
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold text-zinc-500">Distribusi Custom Tier</div>
-                        <div className="mt-2 space-y-1 text-xs">
-                          {Object.entries(qcData.report_payload.media_breakdown.by_custom_tier).map(([k, v]) => (
-                            <div key={k} className="flex justify-between">
-                              <span>{k}</span>
-                              <strong>{v}</strong>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold text-zinc-500">Distribusi Tipe Media</div>
-                        <div className="mt-2 space-y-1 text-xs">
-                          {Object.entries(qcData.report_payload.media_breakdown.by_type).map(([k, v]) => (
-                            <div key={k} className="flex justify-between capitalize">
-                              <span>{k}</span>
-                              <strong>{v}</strong>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-zinc-400">Belum ada data diproses. Klik Upload &amp; Proses terlebih dahulu.</p>
-                  )}
-                </div>
+                <PreCleanPanel
+                  project={activeProject}
+                  onPrecleanCompleted={async (jobId) => {
+                    await loadActiveProjectQC(jobId);
+                    await reloadProjects();
+                  }}
+                  onGoUpload={() => goProject(activeProject.project_id, "upload")}
+                  onGoQC={() => goProject(activeProject.project_id, "qc")}
+                  onGoAI={() => goProject(activeProject.project_id, "ai")}
+                />
               )}
 
               {step === "ai" && (
-                <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-base font-bold text-zinc-900">
-                        Detail 3-Pass Cloud AI Engine
-                      </h2>
-                      <p className="text-xs text-zinc-500">
-                        Klasifikasi Sentimen, Standardisasi Newstrends, Spokesperson Tier-2, &amp; Kolom Ad-Hoc.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setConfigDrawerOpen(true)}
-                      className="rounded-xl border border-zinc-200 px-3.5 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      Buka Panel Config →
-                    </button>
-                  </div>
-                  {qcData ? (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold text-zinc-500">Komposisi Sentimen</div>
-                        <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
-                          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-800">
-                            <div className="text-[10px]">Positif</div>
-                            <div className="text-base font-bold">{qcData.report_payload.sentiment_summary.positive}</div>
-                          </div>
-                          <div className="rounded-lg bg-zinc-200/70 p-2 text-zinc-800">
-                            <div className="text-[10px]">Netral</div>
-                            <div className="text-base font-bold">{qcData.report_payload.sentiment_summary.neutral}</div>
-                          </div>
-                          <div className="rounded-lg bg-rose-50 p-2 text-rose-800">
-                            <div className="text-[10px]">Negatif</div>
-                            <div className="text-base font-bold">{qcData.report_payload.sentiment_summary.negative}</div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                        <div className="text-xs font-semibold text-zinc-500">Kolom Ad-Hoc Aktif</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {qcData.adhoc_columns.map((c) => (
-                            <span key={c} className="rounded-lg bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-800">
-                              {c}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-zinc-400">Belum ada data diproses. Klik Upload &amp; Proses terlebih dahulu.</p>
-                  )}
-                </div>
+                <AIEnginePanel
+                  project={activeProject}
+                  qcData={qcData}
+                  onAICompleted={async (jobId) => {
+                    await loadActiveProjectQC(jobId);
+                    await reloadProjects();
+                  }}
+                  onGoPreclean={() => goProject(activeProject.project_id, "preclean")}
+                  onGoQC={() => goProject(activeProject.project_id, "qc")}
+                  onGoExport={() => goProject(activeProject.project_id, "export")}
+                  onOpenModelConfig={() => setConfigDrawerOpen(true)}
+                />
               )}
 
               {step === "qc" && qcData && (
